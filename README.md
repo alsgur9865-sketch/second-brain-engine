@@ -14,6 +14,38 @@ can store and search knowledge over it.
 - **Incremental indexing**: only changed notes are re-embedded; clients just write files
 - **Auto-capture**: `POST /capture` persists a cleaned note and indexes it immediately — the "conversation → memory" path
 
+## Quickstart (5 min)
+
+Try it against the **bundled sample vault** — no need to set up your own notes yet:
+
+```bash
+git clone https://github.com/alsgur9865-sketch/second-brain-engine
+cd second-brain-engine
+python -m venv .venv && .venv\Scripts\activate    # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+ollama pull bge-m3                                  # one-time embedding model (~2 GB)
+```
+
+Point the engine at the sample vault and start it:
+
+```bash
+# bash / macOS / Linux
+SB_NOTES_PATH=examples/vault uvicorn app.main:app --port 8000
+# Windows PowerShell
+$env:SB_NOTES_PATH="examples/vault"; uvicorn app.main:app --port 8000
+```
+
+In another terminal, search by *meaning* (not keywords):
+
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "how many days to get a refund?", "k": 3}'
+```
+
+You'll get the refund-policy note back even though the keywords don't match.
+No Ollama? See [Swapping embedding providers](#swapping-embedding-providers) to use OpenAI instead.
+
 ## How it works
 
 ```

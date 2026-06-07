@@ -13,6 +13,38 @@
 - **증분 인덱싱**: 변경된 노트만 다시 임베딩 — 클라이언트는 파일만 쓰면 된다
 - **자동 수집**: `POST /capture`로 정리된 노트를 저장 + 즉시 인덱싱 (대화→자동기억)
 
+## 빠른 시작 (5분)
+
+**번들 샘플 vault**로 본인 노트 없이 바로 시험해 본다:
+
+```bash
+git clone https://github.com/alsgur9865-sketch/second-brain-engine
+cd second-brain-engine
+python -m venv .venv && .venv\Scripts\activate    # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+ollama pull bge-m3                                  # 임베딩 모델 1회 다운로드 (~2 GB)
+```
+
+엔진을 샘플 vault로 가리켜 띄운다:
+
+```bash
+# bash / macOS / Linux
+SB_NOTES_PATH=examples/vault uvicorn app.main:app --port 8000
+# Windows PowerShell
+$env:SB_NOTES_PATH="examples/vault"; uvicorn app.main:app --port 8000
+```
+
+다른 터미널에서 *의미로* 검색한다 (키워드 아님):
+
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "환불 며칠 안에 되나요?", "k": 3}'
+```
+
+키워드가 거의 안 맞아도 환불 정책 노트가 잡힌다.
+Ollama가 없다면 [임베딩 프로바이더 교체](#임베딩-프로바이더-교체)로 OpenAI를 써도 된다.
+
 ## 동작 방식
 
 ```

@@ -18,7 +18,7 @@ _COLL_UNSAFE = re.compile(r"[^a-zA-Z0-9]+")   # Chroma 컬렉션 이름은 영�
 
 
 def _collection_slug(provider: str, model: str) -> str:
-    """provider+model을 Chroma 컬렉션 이름 조각으로. 영숫자 외(`:`/`/`/`.`/`-`)는 _로, 양끝 _ 제거."""
+    """provider+model을 컬렉션 이름 조각으로. 영숫자 외 문자(`:`/`/`/`.`/`-`)는 _로, 양끝 _ 제거."""
     raw = f"{provider}__{model}" if model else provider
     return _COLL_UNSAFE.sub("_", raw).strip("_")
 

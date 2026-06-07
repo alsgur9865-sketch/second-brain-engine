@@ -1,4 +1,4 @@
-<!-- progress-sync: c6ec67b5f6b545194e266cc5b0f0f48cc0b80fa5 -->
+<!-- progress-sync: 30f5ff32d610df5345b2cdf35e1a2382fa566e6f -->
 # Progress — 세컨드 브레인 엔진 (범용)
 
 > 최종 업데이트: 2026-06-07

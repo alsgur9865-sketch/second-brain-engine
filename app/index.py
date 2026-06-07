@@ -14,6 +14,20 @@ from .embeddings import EmbeddingProvider
 _HEADING = re.compile(r"^#{1,3}\s")
 _UNSAFE = re.compile(r'[\\/:*?"<>|]')
 _LINK = re.compile(r"\[\[([^\[\]]+)\]\]")   # [[노트 제목]] 또는 [[제목|별칭]]
+_COLL_UNSAFE = re.compile(r"[^a-zA-Z0-9]+")   # Chroma 컬렉션 이름은 영숫자/_/- 만 안전
+
+
+def _collection_slug(provider: str, model: str) -> str:
+    """provider+model을 Chroma 컬렉션 이름 조각으로. 영숫자 외(`:`/`/`/`.`/`-`)는 _로, 양끝 _ 제거."""
+    raw = f"{provider}__{model}" if model else provider
+    return _COLL_UNSAFE.sub("_", raw).strip("_")
+
+
+def _collection_name(base: str, provider: str, model: str) -> str:
+    """모델별로 컬렉션을 분리. provider가 없으면(테스트 등) base를 그대로 쓴다(하위호환)."""
+    if not provider:
+        return base
+    return f"{base}__{_collection_slug(provider, model)}"
 
 
 def chunk_markdown(text: str) -> list[str]:
@@ -107,7 +121,11 @@ class BrainIndex:
         self.ignore_dirs = set(settings.ignore_dirs)
         self.embedder = embedder
         self.client = chromadb.PersistentClient(path=settings.chroma_path)
-        self.collection = self.client.get_or_create_collection(settings.collection_name)
+        # 모델별로 컬렉션을 분리 → 모델을 바꾸면 빈 컬렉션을 보게 되고 sync()가 자동 full 빌드.
+        provider = getattr(embedder, "provider", "")
+        model = getattr(embedder, "model", "")
+        self.collection_name = _collection_name(settings.collection_name, provider, model)
+        self.collection = self.client.get_or_create_collection(self.collection_name)
 
     # ---------- 상태 비교 (디스크 vs 인덱스) ----------
     def _scan_disk(self) -> dict[str, int]:

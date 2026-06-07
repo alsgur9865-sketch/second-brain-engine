@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 from app.index import (
     BrainIndex,
+    _collection_name,
+    _collection_slug,
     _safe_rel,
     _slugify,
     chunk_markdown,
@@ -117,3 +119,39 @@ def test_그래프검색_링크된_이웃이_딸려온다(tmp_path):
     ref = next(h for h in hits if h["path"] == p_ref)
     assert any(link["path"] == p_onb for link in ref["linked"])
     assert "_links" not in ref   # 내부 필드는 응답에서 빠진다
+
+
+# ---------- 모델별 컬렉션 분리 ----------
+
+
+def test_컬렉션이름_모델별로_분리된다():
+    assert _collection_name("second_brain", "ollama", "bge-m3") == "second_brain__ollama_bge_m3"
+    assert (
+        _collection_name("second_brain", "gemini", "gemini-embedding-001")
+        == "second_brain__gemini_gemini_embedding_001"
+    )
+
+
+def test_컬렉션이름_provider없으면_base유지():
+    # 가짜 임베더처럼 provider 속성이 없을 때는 기존 base 컬렉션을 그대로 쓴다(하위호환)
+    assert _collection_name("test", "", "") == "test"
+
+
+def test_컬렉션슬러그_특수문자_치환():
+    assert _collection_slug("ollama", "nomic-embed-text:latest") == "ollama_nomic_embed_text_latest"
+    assert _collection_slug("lmstudio", "") == "lmstudio"   # 모델 비면 provider만
+
+
+def test_BrainIndex_컬렉션이_모델별로_분리된다(tmp_path):
+    settings = SimpleNamespace(
+        notes_path=str(tmp_path / "notes"),
+        chroma_path=str(tmp_path / "chroma"),
+        collection_name="second_brain",
+        ignore_dirs=["templates"],
+    )
+    os.makedirs(settings.notes_path, exist_ok=True)
+    emb = _FakeEmbedder()
+    emb.provider = "ollama"
+    emb.model = "bge-m3"
+    brain = BrainIndex(settings, emb)
+    assert brain.collection_name == "second_brain__ollama_bge_m3"

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.env
+chroma_db/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# 검증용 임시 스크립트 (배포 제외)
+_smoke.py
+_diag.py
+_e2e.py
+_e2e.ps1

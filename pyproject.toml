@@ -1,0 +1,17 @@
+# File: pyproject.toml
+[project]
+name = "second-brain-engine"
+version = "0.1.0"
+description = "헤르메스 에이전트용 세컨드 브레인 의미검색 엔진"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

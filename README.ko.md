@@ -22,7 +22,7 @@
             │  HTTP (JSON)
             ▼
 [ 엔진 코어: second-brain-engine ]
-  /health · /search · /capture · /reindex
+  /health · /search · /capture · /reindex · /delete
             │
    ┌────────┴───────────────┐
 노트 폴더 (.md)          Chroma 벡터DB
@@ -37,11 +37,11 @@
 ```
 second-brain-engine/
 ├── app/
-│   ├── config.py       # 설정(SB_ 환경변수) — 임베딩 프로바이더 선택
+│   ├── config.py       # 설정(SB_ 환경변수) — 임베딩 프로바이더, 옵션 API 키
 │   ├── embeddings.py   # 프로바이더 추상화 (Ollama / OpenAI)
-│   ├── index.py        # Chroma 인덱싱 + 증분 동기화 + 검색 + capture
-│   └── main.py         # FastAPI 라우트 (/health, /search, /reindex, /capture)
-├── tests/              # 청킹 단위 테스트
+│   ├── index.py        # Chroma 인덱싱 + 증분 동기화 + 검색 + capture/delete
+│   └── main.py         # FastAPI 라우트 (/health, /search, /capture, /reindex, /delete)
+├── tests/              # 청킹 / 프론트매터 / 경로안전 + BrainIndex 테스트
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -59,11 +59,12 @@ ollama pull bge-m3        # 기본 모델 — 다국어·한국어 강력
 python -m venv .venv
 .venv\Scripts\activate          # Windows (macOS/Linux는: source .venv/bin/activate)
 pip install -r requirements.txt
+copy .env.example .env          # 선택 — 기본값으로 바로 실행됨 (macOS/Linux는 cp)
 uvicorn app.main:app --port 8000
 ```
 
 모든 설정은 기본값이 있어(`app/config.py`) 바로 실행된다. 값을 바꾸려면
-`SB_` 접두사 환경변수를 설정하거나 `.env` 파일을 만들면 된다.
+`.env.example`을 `.env`로 복사해 수정하거나, `SB_` 접두사 환경변수를 설정하면 된다.
 
 ## 실행 — 방법 B: Docker
 
@@ -79,16 +80,25 @@ docker compose up -d
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| GET | `/health` | 상태 + 인덱싱된 문서 수 |
-| POST | `/search` | `{"query": "...", "k": 5}` → 의미검색 결과 |
-| POST | `/reindex` | 노트 변경분 강제 재동기화 |
+| GET | `/health` | 상태 + 임베딩 백엔드 정상 여부 + 인덱싱된 문서 수 |
+| POST | `/search` | 의미검색 (아래 본문 참고) |
 | POST | `/capture` | 정리된 노트 저장 + 즉시 인덱싱 (대화→자동기억) |
+| POST | `/reindex` | 노트 변경분 강제 재동기화 |
+| POST | `/delete` | `{"path": "inbox/note.md"}` → 노트 파일 + 인덱스 제거 |
 
 ```bash
 curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "온보딩 관련 노트", "k": 5}'
+  -d '{"query": "온보딩 관련 노트", "k": 5, "tag": "회의", "folder": "notes", "max_distance": 1.0}'
 ```
+
+`tag`·`folder`·`max_distance`는 선택 필터다. 인터랙티브 API 문서(Swagger UI)는
+`http://localhost:8000/docs`에서 볼 수 있다.
+
+### 인증 (선택)
+
+`SB_API_KEY`는 기본값이 비어 있다(인증 없음). 값을 설정하면 `/health`를 제외한
+모든 라우트에 `X-API-Key` 헤더를 보내야 한다.
 
 ## 임베딩 프로바이더 교체
 
@@ -118,3 +128,7 @@ pytest
 **헤르메스**(디스코드 봇)다: 별도 노트 레포(`my-second-brain`)를 로컬에 clone해
 직접 읽고/쓰며, 의미검색이 필요할 때만 `/search`를 호출한다. 연동 스킬은
 `hermes-skill/second-brain/SKILL.md` 참고.
+
+## 라이선스
+
+MIT — [LICENSE](LICENSE) 참고.

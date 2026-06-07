@@ -23,7 +23,7 @@ can store and search knowledge over it.
             │  HTTP (JSON)
             ▼
 [ Engine core: second-brain-engine ]
-  /health · /search · /capture · /reindex
+  /health · /search · /capture · /reindex · /delete
             │
    ┌────────┴───────────────┐
 notes folder (.md)      Chroma vector DB
@@ -38,11 +38,11 @@ is currently the first and primary client, but nothing in the engine depends on 
 ```
 second-brain-engine/
 ├── app/
-│   ├── config.py       # settings (SB_ env vars) — embedding provider selection
+│   ├── config.py       # settings (SB_ env vars) — embedding provider, optional API key
 │   ├── embeddings.py   # provider abstraction (Ollama / OpenAI)
-│   ├── index.py        # Chroma indexing + incremental sync + search + capture
-│   └── main.py         # FastAPI routes (/health, /search, /reindex, /capture)
-├── tests/              # chunking unit tests
+│   ├── index.py        # Chroma indexing + incremental sync + search + capture/delete
+│   └── main.py         # FastAPI routes (/health, /search, /capture, /reindex, /delete)
+├── tests/              # chunking / frontmatter / path-safety + BrainIndex tests
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
@@ -60,11 +60,12 @@ ollama pull bge-m3        # default model — strong multilingual / Korean
 python -m venv .venv
 .venv\Scripts\activate          # Windows (use: source .venv/bin/activate on macOS/Linux)
 pip install -r requirements.txt
+copy .env.example .env          # optional — defaults work out of the box (cp on macOS/Linux)
 uvicorn app.main:app --port 8000
 ```
 
 All settings have defaults (see `app/config.py`), so it runs out of the box.
-To override, set `SB_`-prefixed environment variables or create a `.env` file.
+To override, copy `.env.example` to `.env` and edit it, or set `SB_`-prefixed environment variables.
 
 ## Run — Option B: Docker
 
@@ -79,16 +80,25 @@ docker compose up -d
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | status + indexed document count |
-| POST | `/search` | `{"query": "...", "k": 5}` → semantic search results |
-| POST | `/reindex` | force re-sync of changed notes |
+| GET | `/health` | status, embedding-backend health, indexed document count |
+| POST | `/search` | semantic search (see body below) |
 | POST | `/capture` | save a cleaned note + index it immediately (conversation → memory) |
+| POST | `/reindex` | force re-sync of changed notes |
+| POST | `/delete` | `{"path": "inbox/note.md"}` → delete a note file + its index entries |
 
 ```bash
 curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "onboarding notes", "k": 5}'
+  -d '{"query": "onboarding notes", "k": 5, "tag": "meeting", "folder": "notes", "max_distance": 1.0}'
 ```
+
+`tag`, `folder`, and `max_distance` are optional filters. Interactive API docs
+(Swagger UI) are available at `http://localhost:8000/docs`.
+
+### Authentication (optional)
+
+`SB_API_KEY` is empty by default (no auth). If you set it, send it as an
+`X-API-Key` header on every route except `/health`.
 
 ## Swapping embedding providers
 
@@ -118,3 +128,7 @@ The engine is general-purpose — any client that speaks HTTP can use it. The fi
 integration is **Hermes** (a Discord bot): it keeps a separate notes repo
 (`my-second-brain`) cloned locally, reads/writes files directly, and calls
 `/search` when it needs semantic recall. See `hermes-skill/second-brain/SKILL.md`.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

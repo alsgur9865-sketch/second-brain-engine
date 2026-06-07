@@ -1,6 +1,6 @@
 # File: docker-compose.yml
 # 로컬 한 방 실행:  docker compose up -d
-# 노트 레포는 읽기전용(:ro)으로 마운트 — 헤르메스는 호스트에서 직접 쓰고, 엔진은 읽기만 한다.
+# 노트 레포는 읽기·쓰기로 마운트 — 엔진이 /capture로 노트를 쓴다.
 services:
   engine:
     build: .
@@ -12,7 +12,7 @@ services:
       SB_EMBEDDING_PROVIDER: ollama
       # 컨테이너에서 호스트의 Ollama 접근 (호스트는 OLLAMA_HOST=0.0.0.0 필요)
       SB_OLLAMA_BASE_URL: http://host.docker.internal:11434
-      SB_OLLAMA_EMBED_MODEL: nomic-embed-text
+      SB_OLLAMA_EMBED_MODEL: bge-m3
     volumes:
       - ../my-second-brain:/notes          # 노트 레포(개인) — /capture로 쓰므로 읽기·쓰기
       - ./chroma_db:/data/chroma_db        # 벡터DB 영속화

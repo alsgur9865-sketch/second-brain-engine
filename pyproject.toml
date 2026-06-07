@@ -2,7 +2,7 @@
 [project]
 name = "second-brain-engine"
 version = "0.1.0"
-description = "헤르메스 에이전트용 세컨드 브레인 의미검색 엔진"
+description = "A general-purpose second-brain engine with semantic search"
 requires-python = ">=3.11"
 
 [tool.ruff]

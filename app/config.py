@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # --- 검색 동작 ---
     auto_sync_on_search: bool = True          # 검색 직전 노트 변경분 자동 재인덱싱
 
+    # --- API 보안 (옵션) ---
+    api_key: str = ""                         # 비우면 인증 없음. 설정 시 X-API-Key 헤더 필수
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="SB_",

@@ -1,7 +1,7 @@
 # File: app/index.py
-# Chroma 벡터DB 인덱싱 + 의미검색 + 노트 저장(capture).
+# Chroma 벡터DB 인덱싱 + 의미검색 + 노트 저장(capture)/삭제.
 # 핵심 아이디어: 검색/재인덱싱 때마다 노트 폴더를 스캔해 "변경된 파일만" 다시 임베딩한다(증분).
-# 헤르메스는 노트 파일을 쓰거나 /capture로 저장하면 되고, 재인덱싱은 엔진이 알아서 한다.
+# 클라이언트는 노트 파일을 쓰거나 /capture로 저장하면 되고, 재인덱싱은 엔진이 알아서 한다.
 
 import datetime
 import os
@@ -40,11 +40,47 @@ def chunk_markdown(text: str) -> list[str]:
     return chunks
 
 
+def parse_frontmatter(text: str) -> dict[str, str]:
+    """노트 맨 위 `--- ... ---` 프론트매터에서 tags/created만 얕게 추출.
+
+    Chroma 메타데이터는 스칼라만 허용하므로 tags는 콤마 문자열로 평탄화한다.
+    프론트매터가 없으면 빈 값.
+    """
+    meta = {"tags": "", "created": ""}
+    if not text.startswith("---"):
+        return meta
+    end = text.find("\n---", 3)
+    if end == -1:
+        return meta
+    for line in text[3:end].splitlines():
+        key, sep, val = line.partition(":")
+        if not sep:
+            continue
+        key, val = key.strip(), val.strip()
+        if key == "tags":
+            items = [t.strip() for t in val.strip("[]").split(",") if t.strip()]
+            meta["tags"] = ",".join(items)
+        elif key == "created":
+            meta["created"] = val
+    return meta
+
+
 def _slugify(title: str) -> str:
     """제목을 안전한 파일명 조각으로. 파일시스템 금지문자 제거, 공백→-, 길이 제한."""
     s = _UNSAFE.sub("", title).strip()
     s = re.sub(r"\s+", "-", s)
     return s[:50] or "note"
+
+
+def _safe_rel(path: str, default: str = "") -> str:
+    """노트 폴더 기준 상대경로를 안전화. 절대경로·상위(..) 탈출은 default로 강제."""
+    norm = path.replace("\\", "/")
+    if norm.startswith("/") or os.path.isabs(norm):   # 절대경로는 strip 전에 거부
+        return default
+    rel = norm.strip("/")
+    if not rel or ".." in rel.split("/"):
+        return default
+    return rel
 
 
 class BrainIndex:
@@ -101,6 +137,7 @@ class BrainIndex:
         full = os.path.join(self.notes_path, rel_path)
         with open(full, encoding="utf-8") as f:
             text = f.read()
+        fm = parse_frontmatter(text)
         chunks = chunk_markdown(text)
         # 변경 파일 대비: 기존 청크 먼저 제거 후 새로 삽입
         self.collection.delete(where={"path": rel_path})
@@ -111,7 +148,16 @@ class BrainIndex:
         for i, chunk in enumerate(chunks):
             heading = chunk.splitlines()[0] if _HEADING.match(chunk) else ""
             ids.append(f"{rel_path}::{i}")
-            metadatas.append({"path": rel_path, "mtime": mtime, "chunk": i, "heading": heading})
+            metadatas.append(
+                {
+                    "path": rel_path,
+                    "mtime": mtime,
+                    "chunk": i,
+                    "heading": heading,
+                    "tags": fm["tags"],
+                    "created": fm["created"],
+                }
+            )
         self.collection.add(
             ids=ids,
             documents=chunks,
@@ -130,9 +176,10 @@ class BrainIndex:
         """정리된 노트를 프론트매터 마크다운으로 저장 + 즉시 인덱싱. 저장된 상대경로 반환.
 
         ①대화→자동기억의 저장구. 파일명 충돌은 -2, -3 …으로 회피한다.
+        folder는 노트 폴더 밖으로 못 나가게 안전화한다(경로 탈출 방지).
         """
         today = datetime.date.today().isoformat()
-        rel_dir = folder.strip("/\\") or "inbox"
+        rel_dir = _safe_rel(folder, "inbox") or "inbox"
         base = f"{today}-{_slugify(title)}"
         rel_path = f"{rel_dir}/{base}.md"
         full = os.path.join(self.notes_path, rel_path)
@@ -155,26 +202,63 @@ class BrainIndex:
         self._index_file(rel_path, int(os.path.getmtime(full)))
         return rel_path
 
+    # ---------- 노트 삭제 ----------
+    def delete_note(self, path: str) -> dict:
+        """노트 파일을 지우고 인덱스에서도 제거. path는 노트 폴더 기준 상대경로."""
+        rel = _safe_rel(path)
+        if not rel:
+            raise ValueError(f"안전하지 않은 경로: {path!r}")
+        full = os.path.join(self.notes_path, rel)
+        file_existed = os.path.isfile(full)
+        if file_existed:
+            os.remove(full)
+        self.collection.delete(where={"path": rel})
+        return {"deleted": rel, "file_existed": file_existed}
+
     # ---------- 검색 ----------
-    def search(self, query: str, k: int = 5) -> list[dict]:
-        if self.collection.count() == 0:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        tag: str | None = None,
+        folder: str | None = None,
+        max_distance: float | None = None,
+    ) -> list[dict]:
+        """의미검색. tag/folder로 좁히고, max_distance보다 먼 결과는 버린다.
+
+        tag/folder는 Chroma where로 부분매칭이 안 되므로 후보를 넉넉히 뽑아 파이썬에서 거른다.
+        """
+        n = self.collection.count()
+        if n == 0:
             return []
         query_emb = self.embedder.embed([query])[0]
+        fetch = min(n, max(k * 5, k)) if (tag or folder) else min(k, n)
         res = self.collection.query(
             query_embeddings=[query_emb],
-            n_results=min(k, self.collection.count()),
+            n_results=fetch,
             include=["documents", "metadatas", "distances"],
         )
-        results = []
+        folder_prefix = folder.strip("/\\") + "/" if folder else None
+        results: list[dict] = []
         for doc, meta, dist in zip(
             res["documents"][0], res["metadatas"][0], res["distances"][0], strict=True
         ):
+            if max_distance is not None and dist > max_distance:
+                break  # 거리 오름차순 정렬이라 이후도 전부 초과 → 중단
+            if folder_prefix and not meta["path"].startswith(folder_prefix):
+                continue
+            if tag and tag not in meta.get("tags", "").split(","):
+                continue
             results.append(
                 {
                     "path": meta["path"],
                     "heading": meta.get("heading", ""),
+                    "tags": meta.get("tags", ""),
+                    "created": meta.get("created", ""),
                     "snippet": doc[:500],
                     "distance": round(dist, 4),
                 }
             )
+            if len(results) >= k:
+                break
         return results

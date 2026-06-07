@@ -13,6 +13,7 @@ can store and search knowledge over it.
 - **Pluggable embeddings**: local Ollama by default, switch to OpenAI (or any provider) with one config value
 - **Incremental indexing**: only changed notes are re-embedded; clients just write files
 - **Auto-capture**: `POST /capture` persists a cleaned note and indexes it immediately — the "conversation → memory" path
+- **Linked recall**: results carry their `[[wiki-link]]` neighbors, so you recall a *connected cluster* (Obsidian-style graph), not just one chunk
 
 ## Quickstart (5 min)
 
@@ -124,8 +125,10 @@ curl -X POST http://localhost:8000/search \
   -d '{"query": "onboarding notes", "k": 5, "tag": "meeting", "folder": "notes", "max_distance": 1.0}'
 ```
 
-`tag`, `folder`, and `max_distance` are optional filters. Interactive API docs
-(Swagger UI) are available at `http://localhost:8000/docs`.
+`tag`, `folder`, and `max_distance` are optional filters. With `include_links: true`
+(the default), each result also carries `linked` — the notes it points to via
+`[[wiki links]]` — so you recall a connected cluster, not just one chunk. Interactive
+API docs (Swagger UI) are available at `http://localhost:8000/docs`.
 
 ### Authentication (optional)
 

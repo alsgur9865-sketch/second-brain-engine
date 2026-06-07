@@ -12,6 +12,7 @@
 - **임베딩 교체형**: 기본 로컬 Ollama, 설정 한 줄로 OpenAI 등으로 전환
 - **증분 인덱싱**: 변경된 노트만 다시 임베딩 — 클라이언트는 파일만 쓰면 된다
 - **자동 수집**: `POST /capture`로 정리된 노트를 저장 + 즉시 인덱싱 (대화→자동기억)
+- **연결 회상**: 검색 결과에 `[[위키링크]]`로 이어진 이웃 노트가 따라와, 한 노트가 아니라 *연결된 덩어리*로 회상 (Obsidian식 그래프)
 
 ## 빠른 시작 (5분)
 
@@ -124,8 +125,9 @@ curl -X POST http://localhost:8000/search \
   -d '{"query": "온보딩 관련 노트", "k": 5, "tag": "회의", "folder": "notes", "max_distance": 1.0}'
 ```
 
-`tag`·`folder`·`max_distance`는 선택 필터다. 인터랙티브 API 문서(Swagger UI)는
-`http://localhost:8000/docs`에서 볼 수 있다.
+`tag`·`folder`·`max_distance`는 선택 필터다. `include_links: true`(기본)면 각 결과에
+`linked`가 함께 온다 — 그 노트가 `[[위키링크]]`로 가리키는 이웃 노트들이라, 단편이 아니라
+연결된 덩어리로 회상된다. 인터랙티브 API 문서(Swagger UI)는 `http://localhost:8000/docs`에서 볼 수 있다.
 
 ### 인증 (선택)
 

@@ -1,5 +1,5 @@
 # File: app/index.py
-# Chroma 벡터DB 인덱싱 + 의미검색 + 노트 저장(capture)/삭제.
+# Chroma 벡터DB 인덱싱 + 의미검색 + 노트 저장(capture)/삭제 + [[위키링크]] 그래프 검색.
 # 핵심 아이디어: 검색/재인덱싱 때마다 노트 폴더를 스캔해 "변경된 파일만" 다시 임베딩한다(증분).
 # 클라이언트는 노트 파일을 쓰거나 /capture로 저장하면 되고, 재인덱싱은 엔진이 알아서 한다.
 
@@ -13,6 +13,7 @@ from .embeddings import EmbeddingProvider
 
 _HEADING = re.compile(r"^#{1,3}\s")
 _UNSAFE = re.compile(r'[\\/:*?"<>|]')
+_LINK = re.compile(r"\[\[([^\[\]]+)\]\]")   # [[노트 제목]] 또는 [[제목|별칭]]
 
 
 def chunk_markdown(text: str) -> list[str]:
@@ -41,12 +42,12 @@ def chunk_markdown(text: str) -> list[str]:
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
-    """노트 맨 위 `--- ... ---` 프론트매터에서 tags/created만 얕게 추출.
+    """노트 맨 위 `--- ... ---` 프론트매터에서 title/tags/created를 얕게 추출.
 
     Chroma 메타데이터는 스칼라만 허용하므로 tags는 콤마 문자열로 평탄화한다.
     프론트매터가 없으면 빈 값.
     """
-    meta = {"tags": "", "created": ""}
+    meta = {"title": "", "tags": "", "created": ""}
     if not text.startswith("---"):
         return meta
     end = text.find("\n---", 3)
@@ -57,12 +58,24 @@ def parse_frontmatter(text: str) -> dict[str, str]:
         if not sep:
             continue
         key, val = key.strip(), val.strip()
-        if key == "tags":
+        if key == "title":
+            meta["title"] = val
+        elif key == "tags":
             items = [t.strip() for t in val.strip("[]").split(",") if t.strip()]
             meta["tags"] = ",".join(items)
         elif key == "created":
             meta["created"] = val
     return meta
+
+
+def extract_links(text: str) -> list[str]:
+    """본문의 `[[제목]]`/`[[제목|별칭]]`에서 대상 제목만 순서대로 추출(중복 제거)."""
+    out: list[str] = []
+    for raw in _LINK.findall(text):
+        target = raw.split("|")[0].strip()
+        if target and target not in out:
+            out.append(target)
+    return out
 
 
 def _slugify(title: str) -> str:
@@ -81,6 +94,11 @@ def _safe_rel(path: str, default: str = "") -> str:
     if not rel or ".." in rel.split("/"):
         return default
     return rel
+
+
+def _norm_name(s: str) -> str:
+    """링크 텍스트/제목 매칭용 정규화(앞뒤 공백 제거 + 소문자)."""
+    return s.strip().lower()
 
 
 class BrainIndex:
@@ -138,6 +156,7 @@ class BrainIndex:
         with open(full, encoding="utf-8") as f:
             text = f.read()
         fm = parse_frontmatter(text)
+        links = ",".join(extract_links(text))   # 노트 단위 [[링크]] → 메타에 평탄화 저장
         chunks = chunk_markdown(text)
         # 변경 파일 대비: 기존 청크 먼저 제거 후 새로 삽입
         self.collection.delete(where={"path": rel_path})
@@ -154,8 +173,10 @@ class BrainIndex:
                     "mtime": mtime,
                     "chunk": i,
                     "heading": heading,
+                    "title": fm["title"],
                     "tags": fm["tags"],
                     "created": fm["created"],
+                    "links": links,
                 }
             )
         self.collection.add(
@@ -215,6 +236,36 @@ class BrainIndex:
         self.collection.delete(where={"path": rel})
         return {"deleted": rel, "file_existed": file_existed}
 
+    # ---------- 그래프(위키링크) ----------
+    def _name_index(self) -> dict[str, str]:
+        """노트를 가리킬 수 있는 이름(파일명 stem · frontmatter title) → 상대경로."""
+        got = self.collection.get(include=["metadatas"])
+        idx: dict[str, str] = {}
+        for m in got["metadatas"]:
+            path = m["path"]
+            stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            idx[_norm_name(stem)] = path
+            title = m.get("title")
+            if title:
+                idx[_norm_name(title)] = path
+        return idx
+
+    def _attach_linked(self, results: list[dict]) -> None:
+        """각 결과의 `_links`(원시 [[링크]] 텍스트)를 실제 노트 경로로 풀어 `linked`에 첨부."""
+        name_to_path = self._name_index()
+        for r in results:
+            linked: list[dict] = []
+            seen: set[str] = set()
+            for raw in (r.get("_links") or "").split(","):
+                target = raw.strip()
+                if not target:
+                    continue
+                path = name_to_path.get(_norm_name(target))
+                if path and path != r["path"] and path not in seen:
+                    seen.add(path)
+                    linked.append({"name": target, "path": path})
+            r["linked"] = linked
+
     # ---------- 검색 ----------
     def search(
         self,
@@ -223,9 +274,11 @@ class BrainIndex:
         tag: str | None = None,
         folder: str | None = None,
         max_distance: float | None = None,
+        include_links: bool = True,
     ) -> list[dict]:
         """의미검색. tag/folder로 좁히고, max_distance보다 먼 결과는 버린다.
 
+        include_links면 각 히트의 `[[링크]]`를 따라 1-hop 이웃 노트를 `linked`로 첨부한다.
         tag/folder는 Chroma where로 부분매칭이 안 되므로 후보를 넉넉히 뽑아 파이썬에서 거른다.
         """
         n = self.collection.count()
@@ -257,8 +310,13 @@ class BrainIndex:
                     "created": meta.get("created", ""),
                     "snippet": doc[:500],
                     "distance": round(dist, 4),
+                    "_links": meta.get("links", ""),
                 }
             )
             if len(results) >= k:
                 break
+        if include_links and results:
+            self._attach_linked(results)
+        for r in results:
+            r.pop("_links", None)   # 내부 필드 제거(응답엔 linked만 노출)
         return results

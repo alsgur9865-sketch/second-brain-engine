@@ -4,7 +4,14 @@
 import os
 from types import SimpleNamespace
 
-from app.index import BrainIndex, _safe_rel, _slugify, chunk_markdown, parse_frontmatter
+from app.index import (
+    BrainIndex,
+    _safe_rel,
+    _slugify,
+    chunk_markdown,
+    extract_links,
+    parse_frontmatter,
+)
 
 
 def test_헤딩_단위로_분할된다():
@@ -44,7 +51,12 @@ def test_프론트매터_태그_날짜_추출():
 
 
 def test_프론트매터_없으면_빈값():
-    assert parse_frontmatter("# 제목\n본문") == {"tags": "", "created": ""}
+    assert parse_frontmatter("# 제목\n본문") == {"title": "", "tags": "", "created": ""}
+
+
+def test_위키링크_추출():
+    text = "본문 [[노트 하나]] 그리고 [[둘|별칭]] 또 [[노트 하나]]"
+    assert extract_links(text) == ["노트 하나", "둘"]   # 별칭 제거 + 중복 제거
 
 
 def test_safe_rel_경로탈출_차단():
@@ -95,3 +107,13 @@ def test_delete_note_파일과_인덱스_제거(tmp_path):
     res = brain.delete_note(path)
     assert res["file_existed"] is True
     assert not os.path.exists(os.path.join(brain.notes_path, path))
+
+
+def test_그래프검색_링크된_이웃이_딸려온다(tmp_path):
+    brain = _make_brain(tmp_path)
+    p_ref = brain.add_note("환불 정책", "## 결정\n14일 환불.\n관련 [[온보딩]]", ["정책"], "notes")
+    p_onb = brain.add_note("온보딩", "## 핵심\n첫 경험 5분", ["온보딩"], "notes")
+    hits = brain.search("환불", k=3, include_links=True)
+    ref = next(h for h in hits if h["path"] == p_ref)
+    assert any(link["path"] == p_onb for link in ref["linked"])
+    assert "_links" not in ref   # 내부 필드는 응답에서 빠진다

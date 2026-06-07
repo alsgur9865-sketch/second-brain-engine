@@ -38,6 +38,7 @@ class SearchRequest(BaseModel):
     tag: str | None = None
     folder: str | None = None
     max_distance: float | None = None
+    include_links: bool = True
 
 
 class CaptureRequest(BaseModel):
@@ -72,7 +73,9 @@ def health() -> dict:
 def search(req: SearchRequest) -> dict:
     if settings.auto_sync_on_search:
         brain.sync()
-    results = brain.search(req.query, req.k, req.tag, req.folder, req.max_distance)
+    results = brain.search(
+        req.query, req.k, req.tag, req.folder, req.max_distance, req.include_links
+    )
     return {"query": req.query, "results": results}
 
 

@@ -1,4 +1,4 @@
-<!-- progress-sync: 30f5ff32d610df5345b2cdf35e1a2382fa566e6f -->
+<!-- progress-sync: d42f2476e435bbbceac5da487b0ac6688a9f0673 -->
 # Progress — 세컨드 브레인 엔진 (범용)
 
 > 최종 업데이트: 2026-06-07
@@ -84,9 +84,9 @@ my-second-brain(.md 노트)   Chroma 벡터DB(의미검색)
 
 ## 검증 상태
 
-- ruff: All checks passed / pytest: **11 passed** (순수함수 + 가짜 임베더로 BrainIndex capture/search/delete 통합)
-- uvicorn HTTP E2E: `/health`·`/capture`·`/search`·`/reindex` 전부 200, capture→즉시검색 확인 (※ `/delete`는 단위테스트로 검증, HTTP E2E 미실시)
-- 임베딩 모델: `bge-m3` (ollama 0.30.6), 헤르메스 LLM: `gemma4:e4b`
+- ruff: All checks passed / pytest: **23 passed** (순수함수 + 가짜 임베더 BrainIndex capture/search/delete + 임베딩 프리셋 팩토리 + 모델별 컬렉션 분리)
+- `/health` E2E: ollama `bge-m3` 실호출 성공(`embedding_ok: true`), `provider`·`model`·`collection`(`second_brain__ollama_bge_m3`) 노출 확인
+- 임베딩: **교체형 7종**(ollama/lmstudio/llamacpp/tei/openai/voyage/gemini), 기본 `bge-m3`(ollama 0.30.6), 헤르메스 LLM: `gemma4:e4b`
 
 ## 남은 작업 (다음 세션)
 

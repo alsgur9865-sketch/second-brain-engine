@@ -10,7 +10,7 @@ exposes a small HTTP API — any client (a Discord bot, a CLI, a web dashboard, 
 can store and search knowledge over it.
 
 - **Stack**: Python · FastAPI · Chroma (embedded vector DB)
-- **Pluggable embeddings**: local Ollama by default, switch to OpenAI (or any provider) with one config value
+- **Pluggable embeddings**: 7 backends (Ollama, LM Studio, llama.cpp, TEI, OpenAI, Voyage, Gemini) — switch with one env value; the index auto-rebuilds per model
 - **Incremental indexing**: only changed notes are re-embedded; clients just write files
 - **Auto-capture**: `POST /capture` persists a cleaned note and indexes it immediately — the "conversation → memory" path
 - **Linked recall**: results carry their `[[wiki-link]]` neighbors, so you recall a *connected cluster* (Obsidian-style graph), not just one chunk

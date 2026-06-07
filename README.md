@@ -72,7 +72,7 @@ is currently the first and primary client, but nothing in the engine depends on 
 second-brain-engine/
 ├── app/
 │   ├── config.py       # settings (SB_ env vars) — embedding provider, optional API key
-│   ├── embeddings.py   # provider abstraction (Ollama / OpenAI)
+│   ├── embeddings.py   # provider presets (Ollama + OpenAI-compatible)
 │   ├── index.py        # Chroma indexing + incremental sync + search + capture/delete
 │   └── main.py         # FastAPI routes (/health, /search, /capture, /reindex, /delete)
 ├── tests/              # chunking / frontmatter / path-safety + BrainIndex tests
@@ -137,17 +137,36 @@ API docs (Swagger UI) are available at `http://localhost:8000/docs`.
 
 ## Swapping embedding providers
 
-Change the provider via env. To add a new one, add a class in `app/embeddings.py`
-plus one branch in `get_embedder`.
+Switch backends by changing one env value (plus an API key for cloud providers),
+then restart. OpenAI-compatible servers (LM Studio, llama.cpp, TEI, OpenAI, Voyage,
+Gemini) all share one client — the provider name just selects a base-URL preset.
+
+| provider | kind | default model | key |
+|---|---|---|---|
+| `ollama` (default) | local | `bge-m3` | — |
+| `lmstudio` | local (OpenAI-compatible) | set yourself | — |
+| `llamacpp` | local (OpenAI-compatible) | set yourself | — |
+| `tei` | local (OpenAI-compatible) | set yourself | — |
+| `openai` | cloud | `text-embedding-3-small` | ✅ |
+| `voyage` | cloud | `voyage-3.5` | ✅ |
+| `gemini` | cloud | `gemini-embedding-001` | ✅ |
 
 ```bash
-# switch to OpenAI
-SB_EMBEDDING_PROVIDER=openai
-SB_OPENAI_API_KEY=sk-...
+# switch to Gemini
+SB_EMBEDDING_PROVIDER=gemini
+SB_EMBED_API_KEY=AIza...
+
+# or a local LM Studio server
+SB_EMBEDDING_PROVIDER=lmstudio
+SB_EMBED_MODEL=text-embedding-bge-m3   # whatever you loaded
 ```
 
-> ⚠️ Changing the provider changes vector dimensions. Delete `chroma_db/` and
-> re-index (`POST /reindex`, or remove the folder and restart).
+Override a preset with `SB_EMBED_BASE_URL` (e.g. a custom port) and `SB_EMBED_MODEL`.
+Changing the model changes vector dimensions, but the index is **kept per model**
+(`second_brain__<provider>_<model>`) — the engine auto-rebuilds the new one on the
+next search and keeps the old one, so switching back is instant.
+
+> Note: Anthropic has no embedding API; use `voyage` (its recommended partner) instead.
 
 ## Development
 

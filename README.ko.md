@@ -71,7 +71,7 @@ Ollama가 없다면 [임베딩 프로바이더 교체](#임베딩-프로바이�
 second-brain-engine/
 ├── app/
 │   ├── config.py       # 설정(SB_ 환경변수) — 임베딩 프로바이더, 옵션 API 키
-│   ├── embeddings.py   # 프로바이더 추상화 (Ollama / OpenAI)
+│   ├── embeddings.py   # 프로바이더 프리셋 (Ollama + OpenAI 호환)
 │   ├── index.py        # Chroma 인덱싱 + 증분 동기화 + 검색 + capture/delete
 │   └── main.py         # FastAPI 라우트 (/health, /search, /capture, /reindex, /delete)
 ├── tests/              # 청킹 / 프론트매터 / 경로안전 + BrainIndex 테스트
@@ -136,17 +136,36 @@ curl -X POST http://localhost:8000/search \
 
 ## 임베딩 프로바이더 교체
 
-`.env`(또는 환경변수)에서 프로바이더만 바꾸면 된다. 새 프로바이더는
-`app/embeddings.py`에 클래스 하나 추가 + `get_embedder`에 분기 한 줄.
+`.env`에서 `SB_EMBEDDING_PROVIDER` 한 줄(클라우드면 `SB_EMBED_API_KEY` 추가)만 바꾸고
+재시작하면 된다. OpenAI 호환 서버(LM Studio·llama.cpp·TEI·OpenAI·Voyage·Gemini)는
+한 클라이언트를 공유하고, provider 이름은 base_url 프리셋만 고른다.
+
+| provider | 종류 | 기본 모델 | 키 |
+|---|---|---|---|
+| `ollama` (기본) | 로컬 | `bge-m3` | — |
+| `lmstudio` | 로컬(OpenAI 호환) | 직접 지정 | — |
+| `llamacpp` | 로컬(OpenAI 호환) | 직접 지정 | — |
+| `tei` | 로컬(OpenAI 호환) | 직접 지정 | — |
+| `openai` | 클라우드 | `text-embedding-3-small` | ✅ |
+| `voyage` | 클라우드 | `voyage-3.5` | ✅ |
+| `gemini` | 클라우드 | `gemini-embedding-001` | ✅ |
 
 ```bash
-# OpenAI로 전환
-SB_EMBEDDING_PROVIDER=openai
-SB_OPENAI_API_KEY=sk-...
+# Gemini로 전환
+SB_EMBEDDING_PROVIDER=gemini
+SB_EMBED_API_KEY=AIza...
+
+# 또는 로컬 LM Studio 서버
+SB_EMBEDDING_PROVIDER=lmstudio
+SB_EMBED_MODEL=text-embedding-bge-m3   # 로드한 모델명
 ```
 
-> ⚠️ 프로바이더를 바꾸면 벡터 차원이 달라진다. `chroma_db/` 폴더를 지우고 다시
-> 인덱싱할 것: `POST /reindex` (또는 폴더 삭제 후 서버 재시작).
+필요하면 프리셋을 덮어쓴다: `SB_EMBED_BASE_URL`(예: 커스텀 포트), `SB_EMBED_MODEL`.
+모델을 바꾸면 벡터 차원이 달라지지만, 인덱스는 **모델별로 따로 보관**되며
+(`second_brain__<provider>_<model>`) 다음 검색에서 엔진이 새 인덱스를 자동 재빌드한다.
+이전 인덱스는 남아 있어 되돌리면 즉시 복귀된다.
+
+> 참고: Anthropic은 임베딩 API가 없으므로 Claude 대신 `voyage`(권장 파트너)를 쓴다.
 
 ## 개발
 

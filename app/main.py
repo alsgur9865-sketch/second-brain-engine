@@ -64,6 +64,8 @@ def health() -> dict:
         "status": "ok" if embedding_ok else "degraded",
         "embedding_ok": embedding_ok,
         "provider": settings.embedding_provider,
+        "model": getattr(embedder, "model", ""),
+        "collection": brain.collection_name,
         "notes_path": settings.notes_path,
         "documents": brain.collection.count(),
     }

@@ -21,8 +21,9 @@ explore it as an Obsidian-style graph in your browser.
   them only**; strict mode replies "not in memory" instead of hallucinating.
 - **Auto-cleanup** — detect near-duplicate notes by embedding, merge them (your text
   or a local-LLM summary); broken `[[links]]` are auto-rewired on merge.
-- **Pluggable embeddings** — 7 backends (Ollama, LM Studio, llama.cpp, TEI, OpenAI,
-  Voyage, Gemini); switch with one env value, index auto-rebuilds per model.
+- **Pluggable embeddings** — the default `bge-m3` is multilingual (100+ languages,
+  strong in English & Korean alike); swap to any of 7 backends (Ollama, LM Studio,
+  llama.cpp, TEI, OpenAI, Voyage, Gemini) with one env value, index auto-rebuilds per model.
 - **Incremental indexing** — only changed notes are re-embedded; clients just write files.
 
 **Stack**: Python · FastAPI · Chroma (embedded vector DB) · local Ollama LLM

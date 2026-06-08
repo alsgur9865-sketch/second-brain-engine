@@ -165,36 +165,76 @@ docker compose up -d
 
 ## 임베딩 프로바이더 교체
 
-`SB_EMBEDDING_PROVIDER` 한 줄(클라우드면 `SB_EMBED_API_KEY` 추가)만 바꾸고 재시작하면
-된다. OpenAI 호환 서버(LM Studio·llama.cpp·TEI·OpenAI·Voyage·Gemini)는 한 클라이언트를
-공유하고, provider 이름은 base_url 프리셋만 고른다.
+엔진은 글을 벡터로 바꾸는 **임베딩 백엔드 하나**가 꼭 필요하다 — 이게 의미검색의 본질이라
+끌 수 없다. 하지만 **Ollama일 필요는 없다.** `SB_EMBEDDING_PROVIDER` 한 줄(클라우드면
+`SB_EMBED_API_KEY` 추가)만 바꾸고 재시작하면 된다.
 
-| provider | 종류 | 기본 모델 | 키 |
-|---|---|---|---|
-| `ollama` (기본) | 로컬 | `bge-m3` | — |
-| `lmstudio` | 로컬(OpenAI 호환) | 직접 지정 | — |
-| `llamacpp` | 로컬(OpenAI 호환) | 직접 지정 | — |
-| `tei` | 로컬(OpenAI 호환) | 직접 지정 | — |
-| `openai` | 클라우드 | `text-embedding-3-small` | ✅ |
-| `voyage` | 클라우드 | `voyage-3.5` | ✅ |
-| `gemini` | 클라우드 | `gemini-embedding-001` | ✅ |
+| provider | 종류 | 기본 모델 | API 키 | 로컬 설치 |
+|---|---|---|---|---|
+| `ollama` (기본) | 로컬 | `bge-m3` | — | 필요 |
+| `lmstudio` | 로컬(OpenAI 호환) | 직접 지정 | — | 필요 |
+| `llamacpp` | 로컬(OpenAI 호환) | 직접 지정 | — | 필요 |
+| `tei` | 로컬(OpenAI 호환) | 직접 지정 | — | 필요 |
+| `openai` | **클라우드** | `text-embedding-3-small` | ✅ `sk-…` | **불필요** |
+| `voyage` | **클라우드** | `voyage-3.5` | ✅ `pa-…` | **불필요** |
+| `gemini` | **클라우드** | `gemini-embedding-001` | ✅ `AIza…` | **불필요** |
+
+### Ollama가 싫다면 — 클라우드로만 돌리기
+
+Ollama나 로컬 모델을 설치하기 싫으면 클라우드 프로바이더를 쓰면 된다 — **로컬 다운로드 0,
+API 키만.** `.env`(또는 `.mcp.json`의 `env` 블록)에 두 줄을 넣는다:
 
 ```bash
-# Gemini로 전환
+# OpenAI
+SB_EMBEDDING_PROVIDER=openai
+SB_EMBED_API_KEY=sk-...
+
+# Voyage (Anthropic 권장 파트너 — Anthropic은 자체 임베딩 API가 없다)
+SB_EMBEDDING_PROVIDER=voyage
+SB_EMBED_API_KEY=pa-...
+
+# Google Gemini
 SB_EMBEDDING_PROVIDER=gemini
 SB_EMBED_API_KEY=AIza...
-
-# 또는 로컬 LM Studio 서버
-SB_EMBEDDING_PROVIDER=lmstudio
-SB_EMBED_MODEL=text-embedding-bge-m3   # 로드한 모델명
 ```
 
-모델을 바꾸면 벡터 차원이 달라지지만, 인덱스는 **모델별로 따로 보관**되며
-(`second_brain__<provider>_<model>`) 다음 검색에서 엔진이 새 인덱스를 자동 재빌드한다.
-이전 인덱스는 남아 있어 되돌리면 즉시 복귀된다.
+그리고 엔진을 재시작한다. 기본 모델을 바꾸려면 `SB_EMBED_MODEL`을 추가로 지정한다.
 
-> 참고: Anthropic은 임베딩 API가 없으므로 `voyage`(권장 파트너)를 쓴다. 생성형 LLM
-> (정리·분류·답변)은 기본이 로컬 Ollama `gemma`이고 `SB_LLM_*`로 교체한다.
+**대가:** 클라우드 프로바이더를 쓰면 인덱싱/검색마다 노트 텍스트가 그 API로 전송된다 —
+"완전 로컬·프라이버시" 속성을 포기하고 사용량만큼 비용이 든다. 로컬 프로바이더(Ollama·
+LM Studio 등)는 모든 걸 내 PC 안에 둔다.
+
+### 교체가 적용되는 방식
+
+설정은 **엔진 시작 시 한 번만** 읽으므로 실시간 교체가 아니다 — 슬래시 커맨드나 핫스왑은
+없다. 이렇게 적용한다:
+
+1. `.env`/`.mcp.json`에서 `SB_EMBEDDING_PROVIDER`(클라우드면 `SB_EMBED_API_KEY`)를 수정.
+2. 엔진 재시작 — 프로세스를 끄면 MCP 자동기동이 다음 `remember`/`recall` 때 다시 띄운다.
+3. 첫 검색 때 엔진이 노트를 **새로 임베딩**해 새 컬렉션을 만든다.
+
+모델을 바꾸면 벡터 차원이 달라지지만, 인덱스는 **모델별로 따로 보관**되며
+(`second_brain__<provider>_<model>`) 첫 사용 때 새로 만들고 이전 것도 남긴다 — 그래서
+**한 번 썼던 모델로 되돌리면 재빌드 없이 즉시** 복귀된다.
+
+### 로컬이지만 Ollama가 아닌 경우
+
+OpenAI 호환 로컬 서버(LM Studio·llama.cpp·TEI)는 한 클라이언트를 공유하고, provider
+이름이 base_url 프리셋만 고른다. 직접 로드한 모델명을 지정한다:
+
+```bash
+SB_EMBEDDING_PROVIDER=lmstudio
+SB_EMBED_MODEL=text-embedding-bge-m3   # LM Studio에 로드한 모델
+# SB_EMBED_BASE_URL=...                # 서버가 프리셋 포트가 아닐 때만
+```
+
+### 생성형 LLM (임베딩과 별개)
+
+생성형 LLM은 **`/ask`·자동정리 요약·노드 분류**에만 쓰인다 — 저장·검색에는 안 쓴다.
+현재는 **Ollama만 지원**(기본 `gemma4:e4b`)하며, `SB_LLM_MODEL`/`SB_LLM_BASE_URL`로
+모델·주소는 바꿀 수 있지만 클라우드 LLM 프로바이더는 아직 지원하지 않는다. 그래서 임베딩을
+클라우드로 돌리고 Ollama를 아예 안 쓰면 이 세 기능만 꺼진다 — 노트 **저장·검색·그래프는
+정상**이고, 노드만 미분류(회색)로 남으며 정리 병합은 통합문을 직접 넘겨야 한다.
 
 ## 구조
 

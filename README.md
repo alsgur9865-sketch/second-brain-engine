@@ -168,37 +168,82 @@ docker compose up -d
 
 ## Swapping embedding providers
 
-Switch backends by changing one env value (plus an API key for cloud providers),
-then restart. OpenAI-compatible servers (LM Studio, llama.cpp, TEI, OpenAI, Voyage,
-Gemini) share one client — the provider name selects a base-URL preset.
+The engine needs **one** embedding backend to turn text into vectors — that is what
+makes meaning-based search work, so it can't be turned off. But it does **not** have to
+be Ollama. Switch with a single env value (plus an API key for cloud providers), then
+restart.
 
-| provider | kind | default model | key |
-|---|---|---|---|
-| `ollama` (default) | local | `bge-m3` | — |
-| `lmstudio` | local (OpenAI-compatible) | set yourself | — |
-| `llamacpp` | local (OpenAI-compatible) | set yourself | — |
-| `tei` | local (OpenAI-compatible) | set yourself | — |
-| `openai` | cloud | `text-embedding-3-small` | ✅ |
-| `voyage` | cloud | `voyage-3.5` | ✅ |
-| `gemini` | cloud | `gemini-embedding-001` | ✅ |
+| provider | kind | default model | API key | local install |
+|---|---|---|---|---|
+| `ollama` (default) | local | `bge-m3` | — | required |
+| `lmstudio` | local (OpenAI-compatible) | set yourself | — | required |
+| `llamacpp` | local (OpenAI-compatible) | set yourself | — | required |
+| `tei` | local (OpenAI-compatible) | set yourself | — | required |
+| `openai` | **cloud** | `text-embedding-3-small` | ✅ `sk-…` | **none** |
+| `voyage` | **cloud** | `voyage-3.5` | ✅ `pa-…` | **none** |
+| `gemini` | **cloud** | `gemini-embedding-001` | ✅ `AIza…` | **none** |
+
+### Don't want Ollama? Run fully on the cloud
+
+If you'd rather not install Ollama or any local model, point the engine at a cloud
+provider — **no local download, just an API key.** Set two values in `.env` (or the
+`env` block of your `.mcp.json`):
 
 ```bash
-# switch to Gemini
+# OpenAI
+SB_EMBEDDING_PROVIDER=openai
+SB_EMBED_API_KEY=sk-...
+
+# Voyage (Anthropic's recommended partner — Anthropic has no embedding API of its own)
+SB_EMBEDDING_PROVIDER=voyage
+SB_EMBED_API_KEY=pa-...
+
+# Google Gemini
 SB_EMBEDDING_PROVIDER=gemini
 SB_EMBED_API_KEY=AIza...
-
-# or a local LM Studio server
-SB_EMBEDDING_PROVIDER=lmstudio
-SB_EMBED_MODEL=text-embedding-bge-m3   # whatever you loaded
 ```
 
-Changing the model changes vector dimensions, but the index is **kept per model**
-(`second_brain__<provider>_<model>`) — the engine auto-rebuilds the new one on the
-next search and keeps the old one, so switching back is instant.
+Then restart the engine. Optionally set `SB_EMBED_MODEL` to override the default model.
 
-> Note: Anthropic has no embedding API; use `voyage` (its recommended partner) instead.
-> The generative LLM (cleanup / classify / ask) is local Ollama `gemma` by default,
-> swappable via `SB_LLM_*`.
+**Trade-off:** with a cloud provider your note text is sent to that API on every
+index/search — you give up the "fully local / private" property and you pay per use.
+Local providers (Ollama, LM Studio, …) keep everything on your machine.
+
+### How a switch takes effect
+
+Settings are read **once at engine start**, so a change is not live — there is no
+slash command or hot-swap. Apply it like this:
+
+1. Edit `SB_EMBEDDING_PROVIDER` (+ `SB_EMBED_API_KEY` for cloud) in `.env` / `.mcp.json`.
+2. Restart the engine — stop the process; with MCP auto-start it relaunches on the next
+   `remember` / `recall`.
+3. On the first search the engine **re-embeds your notes** into a new collection.
+
+Changing the model changes vector dimensions, but the index is **kept per model**
+(`second_brain__<provider>_<model>`) — the engine builds the new one on first use and
+keeps the old one, so **switching back to a model you used before is instant** (no
+re-index).
+
+### Local, but not Ollama
+
+OpenAI-compatible local servers (LM Studio, llama.cpp, TEI) share one client; the
+provider name just selects a base-URL preset. Set the model you loaded yourself:
+
+```bash
+SB_EMBEDDING_PROVIDER=lmstudio
+SB_EMBED_MODEL=text-embedding-bge-m3   # whatever you loaded in LM Studio
+# SB_EMBED_BASE_URL=...                # only if your server isn't on the preset port
+```
+
+### Generative LLM (separate from embeddings)
+
+The generative LLM is used **only** for `/ask`, auto-cleanup summaries, and node
+classification — never for storing or searching. It is currently **Ollama only**
+(`gemma4:e4b` by default); you can change the model or URL via `SB_LLM_MODEL` /
+`SB_LLM_BASE_URL`, but a cloud LLM provider isn't supported yet. So if you run
+embeddings on the cloud and don't want Ollama at all, those three features simply stay
+off — notes still **save, search, and graph** fine; nodes just remain unclassified (gray),
+and cleanup merges need you to pass the merged text yourself.
 
 ## Layout
 

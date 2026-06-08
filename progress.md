@@ -1,4 +1,4 @@
-<!-- progress-sync: 2939e86d8ed273023c098994d9ba3792df21cefc -->
+<!-- progress-sync: 646eff12aafb61421974b70147e3a224d7e37ed7 -->
 # Progress — 세컨드 브레인 엔진 (범용)
 
 > 최종 업데이트: 2026-06-08
@@ -29,6 +29,7 @@
 
 ## 진행 기록
 
+- **2026-06-08 (7) 노드 클릭 → 노트 상세 패널 (T1, 보기 완성)**: 그래프 노드를 클릭하면 우측 패널에 제목·유형 배지·태그·날짜·본문 전체 + 위키링크 연결 노트를 띄운다(전엔 줌만 됐다 = 보기 반쪽). 연결 칩·ask 근거 칩 클릭 시 그 노드로 점프 → 검색·질문·그래프가 하나로. `main.py GET /note?path=`(본문+메타, `_safe_rel` 경로탈출 차단) + `graph.html` 우측 패널(textContent/DOM XSS 차단). ruff/pytest 34 passed + E2E(/note·경로탈출 400·없는노트 404·/ask 회귀) + 브라우저 실확인. (커밋 646eff1)
 - **2026-06-08 (6) RAG /ask — 꺼내 쓰기 (안 B 조각)**: 질문을 임베딩 검색(top-k)해 로컬 gemma가 **그 노트만 근거로** 답하는 1-shot RAG. 근거가 없으면 '기억에 없습니다'로 답하는 **엄격 모드**(환각 방지). Claude는 recall로 충분하므로 ask는 **사람용**(그래프 뷰 질문 바)으로 포지셔닝. `llm.py answer_question`(notes 비면 LLM 호출 없이 폴백) + `main.py POST /ask`(search→answer_question, sources 반환) + `graph.html` 질문 바·답변 패널(textContent/DOM으로 XSS 차단). ruff / pytest **34 passed**(ask 2) + 실엔진 E2E(벡터DB 질문→'Chroma' 정답+출처, 점심·bge-m3 질문→'기억에 없습니다'). (커밋 2939e86)
 - **2026-06-08 (5) 노드 유형 분류 (안 B 첫 조각)**: frontmatter에 type 없는 노트만 로컬 gemma로 의미/통찰/절차로 분류해 frontmatter에 써넣고(이미 있으면 skip=캐싱) 그래프 노드를 유형별 색으로 칠한다 — `llm.py classify_note`+`index.py classify_unclassified`+`POST /classify`+`graph.py/html`(folder색→type색·범례). **프롬프트 함정**: 첫 시도엔 전체 text+약한 프롬프트로 gemma가 5개 다 '절차'로 쏠림 → 본문만(`_strip_frontmatter`)+유형 정의 또렷한 프롬프트로 통찰/절차/의미 정확 구분(qwen도 동일 → 모델 아닌 프롬프트 문제). ruff / pytest **32 passed**(classify 3) + 실엔진 E2E(통찰3/절차2, 재호출 skip 5). (커밋 ae9517b, 로컬)
 - **2026-06-08 (4) 병합 시 위키링크 보정 + 재시작 후 검증**: ①재시작 후 cleanup MCP 도구·Stop hook(3분기)·`cleanup_merge` E2E 모두 실작동 확인(남은작업 1 해소). ②`cleanup_merge`가 원본을 삭제할 때 끊기던 `[[링크]]`를 새 노트 제목으로 자동 치환 — `index.py`에 `collect_link_names()`(삭제 전 stem+title 수집)+`relink()`(전체 스캔·단순 치환·재인덱싱), merge가 add→collect→delete→relink로 호출하고 응답에 `relinked` 추가. 별칭 버림·항상 자동. ruff / pytest **29 passed**(relink 2) + 실엔진 E2E(B·C 병합 시 A의 `[[..]]` 치환) 확인. (커밋 b0316fb, 로컬)

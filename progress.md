@@ -1,4 +1,4 @@
-<!-- progress-sync: b0316fbead45a78370fa35e19fd4c6e334203089 -->
+<!-- progress-sync: ae9517b6535e9f6138178f2fdc54039a9cb9e28d -->
 # Progress — 세컨드 브레인 엔진 (범용)
 
 > 최종 업데이트: 2026-06-08
@@ -29,6 +29,7 @@
 
 ## 진행 기록
 
+- **2026-06-08 (5) 노드 유형 분류 (안 B 첫 조각)**: frontmatter에 type 없는 노트만 로컬 gemma로 의미/통찰/절차로 분류해 frontmatter에 써넣고(이미 있으면 skip=캐싱) 그래프 노드를 유형별 색으로 칠한다 — `llm.py classify_note`+`index.py classify_unclassified`+`POST /classify`+`graph.py/html`(folder색→type색·범례). **프롬프트 함정**: 첫 시도엔 전체 text+약한 프롬프트로 gemma가 5개 다 '절차'로 쏠림 → 본문만(`_strip_frontmatter`)+유형 정의 또렷한 프롬프트로 통찰/절차/의미 정확 구분(qwen도 동일 → 모델 아닌 프롬프트 문제). ruff / pytest **32 passed**(classify 3) + 실엔진 E2E(통찰3/절차2, 재호출 skip 5). (커밋 ae9517b, 로컬)
 - **2026-06-08 (4) 병합 시 위키링크 보정 + 재시작 후 검증**: ①재시작 후 cleanup MCP 도구·Stop hook(3분기)·`cleanup_merge` E2E 모두 실작동 확인(남은작업 1 해소). ②`cleanup_merge`가 원본을 삭제할 때 끊기던 `[[링크]]`를 새 노트 제목으로 자동 치환 — `index.py`에 `collect_link_names()`(삭제 전 stem+title 수집)+`relink()`(전체 스캔·단순 치환·재인덱싱), merge가 add→collect→delete→relink로 호출하고 응답에 `relinked` 추가. 별칭 버림·항상 자동. ruff / pytest **29 passed**(relink 2) + 실엔진 E2E(B·C 병합 시 A의 `[[..]]` 치환) 확인. (커밋 b0316fb, 로컬)
 - **2026-06-08 (3) 자동정리 풀스택 + 에이전트 자동 쌓기**:
   - **자동 쌓기(능동+리마인더)**: 프로젝트 `CLAUDE.md` 능동 규칙(확정 시 `remember`/작업 시작 시 `recall`, folder=decisions/bugs/todos, 저장 전 중복확인) + `.claude/hooks/remind_memory.py` **Stop hook**(한 세션에 remember 0회+사용자 메시지 3개↑면 1회 환기, `stop_hook_active`로 무한루프 방지). hook 등록은 git 제외되는 `settings.local.json`.

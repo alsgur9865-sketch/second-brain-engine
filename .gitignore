@@ -18,3 +18,6 @@ _e2e.ps1
 
 # 내부 작업 규칙(dogfooding 설명) — 로컬 유지, 공개 제외
 /CLAUDE.md
+
+# 내부 진행 기록 — 로컬 유지, 공개 제외
+/progress.md

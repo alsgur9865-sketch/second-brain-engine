@@ -1,4 +1,4 @@
-<!-- progress-sync: ae9517b6535e9f6138178f2fdc54039a9cb9e28d -->
+<!-- progress-sync: 2939e86d8ed273023c098994d9ba3792df21cefc -->
 # Progress — 세컨드 브레인 엔진 (범용)
 
 > 최종 업데이트: 2026-06-08
@@ -29,6 +29,7 @@
 
 ## 진행 기록
 
+- **2026-06-08 (6) RAG /ask — 꺼내 쓰기 (안 B 조각)**: 질문을 임베딩 검색(top-k)해 로컬 gemma가 **그 노트만 근거로** 답하는 1-shot RAG. 근거가 없으면 '기억에 없습니다'로 답하는 **엄격 모드**(환각 방지). Claude는 recall로 충분하므로 ask는 **사람용**(그래프 뷰 질문 바)으로 포지셔닝. `llm.py answer_question`(notes 비면 LLM 호출 없이 폴백) + `main.py POST /ask`(search→answer_question, sources 반환) + `graph.html` 질문 바·답변 패널(textContent/DOM으로 XSS 차단). ruff / pytest **34 passed**(ask 2) + 실엔진 E2E(벡터DB 질문→'Chroma' 정답+출처, 점심·bge-m3 질문→'기억에 없습니다'). (커밋 2939e86)
 - **2026-06-08 (5) 노드 유형 분류 (안 B 첫 조각)**: frontmatter에 type 없는 노트만 로컬 gemma로 의미/통찰/절차로 분류해 frontmatter에 써넣고(이미 있으면 skip=캐싱) 그래프 노드를 유형별 색으로 칠한다 — `llm.py classify_note`+`index.py classify_unclassified`+`POST /classify`+`graph.py/html`(folder색→type색·범례). **프롬프트 함정**: 첫 시도엔 전체 text+약한 프롬프트로 gemma가 5개 다 '절차'로 쏠림 → 본문만(`_strip_frontmatter`)+유형 정의 또렷한 프롬프트로 통찰/절차/의미 정확 구분(qwen도 동일 → 모델 아닌 프롬프트 문제). ruff / pytest **32 passed**(classify 3) + 실엔진 E2E(통찰3/절차2, 재호출 skip 5). (커밋 ae9517b, 로컬)
 - **2026-06-08 (4) 병합 시 위키링크 보정 + 재시작 후 검증**: ①재시작 후 cleanup MCP 도구·Stop hook(3분기)·`cleanup_merge` E2E 모두 실작동 확인(남은작업 1 해소). ②`cleanup_merge`가 원본을 삭제할 때 끊기던 `[[링크]]`를 새 노트 제목으로 자동 치환 — `index.py`에 `collect_link_names()`(삭제 전 stem+title 수집)+`relink()`(전체 스캔·단순 치환·재인덱싱), merge가 add→collect→delete→relink로 호출하고 응답에 `relinked` 추가. 별칭 버림·항상 자동. ruff / pytest **29 passed**(relink 2) + 실엔진 E2E(B·C 병합 시 A의 `[[..]]` 치환) 확인. (커밋 b0316fb, 로컬)
 - **2026-06-08 (3) 자동정리 풀스택 + 에이전트 자동 쌓기**:
@@ -95,7 +96,7 @@ notes 폴더(.md)             Chroma 벡터DB         로컬 LLM(ollama gemma)
 
 1. **push 보류분**: 로컬 커밋 4개(위키링크·노드유형·progress 동기화 2). 검증 끝났으니 올리면 됨.
 2. **자동정리 — (선택) 무인 자동 실행**(임계값/주기). *위키링크 보정은 완료(b0316fb).*
-3. **안 B 나머지**: 의미 관계 엣지(지지/반박/확장, LLM) · 질문→답(RAG `/ask`). *노드 유형 분류는 완료(ae9517b).*
+3. **안 B 나머지**: 의미 관계 엣지(지지/반박/확장, LLM). *노드 유형 분류(ae9517b)·RAG `/ask`(2939e86)는 완료.*
 4. 헤르메스 실연동 — 또 다른 클라이언트로 여전히 가능.
 
 ## 로컬 환경 메모

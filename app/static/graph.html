@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- File: app/static/graph.html -->
 <!-- 사람이 보는 그래프 뷰. /graph(JSON)를 받아 force-graph로 노드/엣지를 그린다. -->
-<!-- 빌드툴 없음: force-graph UMD를 CDN으로 불러오는 단일 페이지. -->
+<!-- /cleanup/candidates로 중복 후보 쌍을 빨갛게 강조한다. 빌드툴 없음(CDN 단일 페이지). -->
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
@@ -25,17 +25,32 @@
   <div class="legend">
     <span><i class="dot" style="background:#4ade80"></i>위키링크</span>
     <span><i class="dot" style="background:#64748b"></i>의미 유사</span>
+    <span><i class="dot" style="background:#ef4444"></i>정리 후보(중복)</span>
   </div>
 </div>
 <div id="graph"></div>
 <script src="https://unpkg.com/force-graph"></script>
 <script>
-fetch('/graph')
-  .then(r => r.json())
-  .then(data => {
-    const links = data.edges.map(e => ({ ...e }));
+Promise.all([
+  fetch('/graph').then(r => r.json()),
+  fetch('/cleanup/candidates?threshold=0.85').then(r => r.json()).catch(() => ({ candidates: [] })),
+])
+  .then(([data, cleanup]) => {
+    // 중복 후보 쌍 → 빨간 dup 링크. 같은 쌍의 의미유사 엣지는 제거(이중 표시 방지).
+    const dupKey = (a, b) => [a, b].sort().join('||');
+    const dupSet = new Set();
+    const dupLinks = (cleanup.candidates || []).map(c => {
+      dupSet.add(dupKey(c.a.path, c.b.path));
+      return { source: c.a.path, target: c.b.path, type: 'dup', weight: c.score };
+    });
+    const links = data.edges
+      .filter(e => !(e.type === 'similar' && dupSet.has(dupKey(e.source, e.target))))
+      .map(e => ({ ...e }))
+      .concat(dupLinks);
+
+    const dupTxt = dupLinks.length ? ` · ⚠ 정리 후보 ${dupLinks.length}쌍` : '';
     document.getElementById('stat').textContent =
-      `${data.nodes.length} 노드 · ${links.length} 엣지`;
+      `${data.nodes.length} 노드 · ${links.length} 엣지${dupTxt}`;
 
     // 폴더별 노드 색
     const palette = {};
@@ -48,8 +63,8 @@ fetch('/graph')
       .backgroundColor('#0b0e14')
       .nodeRelSize(5)
       .nodeColor(n => colorFor(n.folder))
-      .linkColor(l => l.type === 'link' ? '#4ade80' : '#475569')
-      .linkWidth(l => l.type === 'similar' ? (l.weight || 0.5) * 2 : 1.8)
+      .linkColor(l => l.type === 'link' ? '#4ade80' : l.type === 'dup' ? '#ef4444' : '#475569')
+      .linkWidth(l => l.type === 'dup' ? 4 : l.type === 'similar' ? (l.weight || 0.5) * 2 : 1.8)
       .linkDirectionalParticles(l => l.type === 'link' ? 2 : 0)
       .linkDirectionalParticleWidth(2)
       .nodeCanvasObjectMode(() => 'after')

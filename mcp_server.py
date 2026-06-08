@@ -21,7 +21,15 @@ mcp = FastMCP("second-brain")
 def _post(path: str, payload: dict) -> dict:
     """엔진의 POST 엔드포인트를 호출. API 키가 있으면 X-API-Key 헤더를 붙인다."""
     headers = {"X-API-Key": API_KEY} if API_KEY else {}
-    r = httpx.post(f"{ENGINE}{path}", json=payload, headers=headers, timeout=120)
+    r = httpx.post(f"{ENGINE}{path}", json=payload, headers=headers, timeout=180)
+    r.raise_for_status()
+    return r.json()
+
+
+def _get(path: str, params: dict) -> dict:
+    """엔진의 GET 엔드포인트를 호출. API 키가 있으면 X-API-Key 헤더를 붙인다."""
+    headers = {"X-API-Key": API_KEY} if API_KEY else {}
+    r = httpx.get(f"{ENGINE}{path}", params=params, headers=headers, timeout=120)
     r.raise_for_status()
     return r.json()
 
@@ -57,6 +65,37 @@ def recall(query: str, k: int = 5, tag: str = "", folder: str = "") -> dict:
     if folder:
         payload["folder"] = folder
     return _post("/search", payload)
+
+
+@mcp.tool()
+def cleanup_candidates(threshold: float = 0.85, max_pairs: int = 20) -> dict:
+    """중복으로 의심되는 기억 쌍을 찾는다(임베딩 유사도). 기억을 정리하기 전 '뭐가 겹치나' 확인용.
+
+    threshold: 이 유사도 이상만(기본 0.85, 높을수록 더 확실한 중복). 각 쌍에 두 노트의
+    경로·제목·스니펫이 온다. 진짜 중복이라고 판단되면 cleanup_merge로 합친다.
+    """
+    return _get("/cleanup/candidates", {"threshold": threshold, "max_pairs": max_pairs})
+
+
+@mcp.tool()
+def cleanup_merge(
+    sources: list[str],
+    title: str = "",
+    content: str = "",
+    folder: str = "decisions",
+    tags: list[str] | None = None,
+) -> dict:
+    """중복 노트 여러 개(sources, 2개 이상)를 하나로 병합한다. 원본은 삭제된다.
+
+    content를 직접 주면 그 내용으로 합치고(권장: 통합문을 네가 작성), 비우면 엔진이
+    로컬 LLM(gemma)으로 자동 요약한다. folder/tags로 합친 노트를 분류한다.
+    """
+    payload: dict = {"sources": sources, "folder": folder, "tags": tags or []}
+    if title:
+        payload["title"] = title
+    if content:
+        payload["content"] = content
+    return _post("/cleanup/merge", payload)
 
 
 if __name__ == "__main__":

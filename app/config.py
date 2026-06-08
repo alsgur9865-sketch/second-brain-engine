@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     embed_base_url: str = ""     # 비우면 provider 프리셋 기본 주소(로컬 포트만 다르면 여기만 지정)
     embed_api_key: str = ""      # 클라우드 provider(openai/voyage/gemini) API 키
 
+    # --- 정리(cleanup)용 LLM 백엔드 (중복 병합·요약) ---
+    # 임베딩과 달리 '글을 새로 쓰는' 작업이라 생성형 LLM이 필요. 기본은 로컬 ollama.
+    llm_provider: str = "ollama"      # 지금은 ollama만 지원
+    llm_model: str = "gemma4:e4b"     # 비우면 provider 프리셋 기본 모델
+    llm_base_url: str = ""            # 비우면 provider 프리셋 기본 주소(로컬 11434)
+
     # --- 검색 동작 ---
     auto_sync_on_search: bool = True          # 검색 직전 노트 변경분 자동 재인덱싱
 

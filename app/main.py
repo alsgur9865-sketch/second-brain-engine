@@ -2,6 +2,7 @@
 # 검색엔진 HTTP API. 클라이언트가 의미검색(/search)·노트저장(/capture)·삭제(/delete)를 호출한다.
 # 실행: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,10 +10,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from .cleanup import find_duplicate_candidates
 from .config import Settings
 from .embeddings import get_embedder
 from .graph import build_graph
-from .index import BrainIndex
+from .index import BrainIndex, _safe_rel, parse_frontmatter
+from .llm import get_llm, summarize_merge
 
 settings = Settings()
 embedder = get_embedder(settings)
@@ -55,6 +58,14 @@ class CaptureRequest(BaseModel):
 
 class DeleteRequest(BaseModel):
     path: str
+
+
+class MergeRequest(BaseModel):
+    sources: list[str]            # 합칠 노트들(상대경로, 2개 이상)
+    title: str | None = None
+    content: str | None = None    # 비우면 엔진이 로컬 LLM으로 자동 요약
+    folder: str = "decisions"
+    tags: list[str] = []
 
 
 @app.get("/health")
@@ -122,3 +133,61 @@ def capture(req: CaptureRequest) -> dict:
 def delete(req: DeleteRequest) -> dict:
     """노트 파일 삭제 + 인덱스에서 제거. path는 노트 폴더 기준 상대경로."""
     return brain.delete_note(req.path)
+
+
+def _read_notes(sources: list[str]) -> list[dict]:
+    """sources(상대경로)의 노트를 안전하게 읽어 [{title, content}]로. 경로탈출은 건너뛴다."""
+    notes: list[dict] = []
+    for rel in sources:
+        safe = _safe_rel(rel)
+        if not safe:
+            continue
+        full = os.path.join(settings.notes_path, safe)
+        if not os.path.isfile(full):
+            continue
+        with open(full, encoding="utf-8") as f:
+            text = f.read()
+        fm = parse_frontmatter(text)
+        notes.append({"title": fm["title"] or safe, "content": text})
+    return notes
+
+
+@app.get("/cleanup/candidates")
+def cleanup_candidates(threshold: float = 0.85, max_pairs: int = 20) -> dict:
+    """중복/유사 후보 쌍(임베딩 유사도 threshold 이상). 읽기 전용이라 인증 없음.
+
+    threshold가 높을수록 '거의 같은' 것만 잡는다. 각 쌍에 두 노트의 path/title/snippet.
+    """
+    if settings.auto_sync_on_search:
+        brain.sync()
+    return {"candidates": find_duplicate_candidates(brain, threshold, max_pairs)}
+
+
+@app.post("/cleanup/merge", dependencies=[Depends(require_api_key)])
+def cleanup_merge(req: MergeRequest) -> dict:
+    """중복 노트(sources, 2개 이상)를 하나로 병합. content 있으면 사용, 없으면 로컬 LLM 요약.
+
+    새 노트를 저장하고 원본을 삭제한다. 위키링크 보정은 하지 않는다(1차 한계).
+    """
+    if len(req.sources) < 2:
+        raise HTTPException(status_code=400, detail="sources는 2개 이상이어야 한다")
+
+    title, content = req.title, req.content
+    if not content:
+        notes = _read_notes(req.sources)
+        if not notes:
+            raise HTTPException(status_code=404, detail="병합할 노트를 찾을 수 없다")
+        gen_title, content = summarize_merge(get_llm(settings), notes)
+        title = title or gen_title
+    if not title:
+        raise HTTPException(status_code=400, detail="title이 필요하다(content를 비우면 자동 생성)")
+
+    new_path = brain.add_note(title, content, req.tags, req.folder)
+    removed: list[str] = []
+    for src in req.sources:
+        safe = _safe_rel(src)
+        if not safe or safe == new_path:
+            continue
+        brain.delete_note(safe)
+        removed.append(safe)
+    return {"merged": new_path, "removed": removed}

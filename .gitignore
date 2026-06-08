@@ -15,3 +15,6 @@ _e2e.ps1
 
 # Claude Code MCP 등록 (PC 절대경로가 박혀 있어 공개 제외 — .mcp.json.example로 공유)
 .mcp.json
+
+# 내부 작업 규칙(dogfooding 설명) — 로컬 유지, 공개 제외
+/CLAUDE.md

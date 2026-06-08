@@ -4,16 +4,29 @@
 
 ![second-brain-engine](assets/hero.png)
 
-A general-purpose **second-brain engine** that auto-captures conversations and
-recalls them via semantic search. It indexes a folder of Markdown notes and
-exposes a small HTTP API — any client (a Discord bot, a CLI, a web dashboard, …)
-can store and search knowledge over it.
+A general-purpose **second-brain engine**: an **agent writes to it (via MCP), and a
+human reads it as a graph.** It indexes a folder of Markdown notes and exposes a
+small HTTP API — store knowledge, recall it by meaning, let it self-organize, and
+explore it as an Obsidian-style graph in your browser.
 
-- **Stack**: Python · FastAPI · Chroma (embedded vector DB)
-- **Pluggable embeddings**: 7 backends (Ollama, LM Studio, llama.cpp, TEI, OpenAI, Voyage, Gemini) — switch with one env value; the index auto-rebuilds per model
-- **Incremental indexing**: only changed notes are re-embedded; clients just write files
-- **Auto-capture**: `POST /capture` persists a cleaned note and indexes it immediately — the "conversation → memory" path
-- **Linked recall**: results carry their `[[wiki-link]]` neighbors, so you recall a *connected cluster* (Obsidian-style graph), not just one chunk
+- **Agent memory (MCP)** — `remember` / `recall` tools let Claude Code (or any MCP
+  client: Cursor, Cline, Windsurf, …) store and recall working memory. The engine
+  is the single owner of notes + index; the MCP server is a thin proxy.
+- **Graph view (browser)** — see what the agent remembered and how it connects:
+  `[[wiki-links]]`, semantic similarity, node types (concept / insight / procedure),
+  and **relation edges** (supports / refutes / expands). Click a node to read it.
+- **Semantic search** — meaning, not keywords. Results carry their `[[wiki-link]]`
+  neighbors, so you recall a *connected cluster*, not one chunk.
+- **Ask (RAG)** — `POST /ask` searches your notes and a local LLM answers **from
+  them only**; strict mode replies "not in memory" instead of hallucinating.
+- **Auto-cleanup** — detect near-duplicate notes by embedding, merge them (your text
+  or a local-LLM summary); broken `[[links]]` are auto-rewired on merge.
+- **Pluggable embeddings** — 7 backends (Ollama, LM Studio, llama.cpp, TEI, OpenAI,
+  Voyage, Gemini); switch with one env value, index auto-rebuilds per model.
+- **Incremental indexing** — only changed notes are re-embedded; clients just write files.
+
+**Stack**: Python · FastAPI · Chroma (embedded vector DB) · local Ollama LLM
+(for cleanup, classification, and answers — no extra infra).
 
 ## Quickstart (5 min)
 
@@ -36,88 +49,65 @@ SB_NOTES_PATH=examples/vault uvicorn app.main:app --port 8000
 $env:SB_NOTES_PATH="examples/vault"; uvicorn app.main:app --port 8000
 ```
 
-In another terminal, search by *meaning* (not keywords):
+Now you can:
 
 ```bash
+# 1) Search by meaning (not keywords)
 curl -X POST http://localhost:8000/search \
   -H "Content-Type: application/json" \
   -d '{"query": "how many days to get a refund?", "k": 3}'
+
+# 2) Ask a question — the engine answers from your notes only
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"query": "what is the refund window?"}'
 ```
 
-You'll get the refund-policy note back even though the keywords don't match.
+…and open **http://localhost:8000** in a browser to see the **graph view** —
+nodes colored by type, edges for wiki-links / similarity / relations, with a
+detail panel and a question box.
+
 No Ollama? See [Swapping embedding providers](#swapping-embedding-providers) to use OpenAI instead.
 
 ## How it works
 
 ```
 [ Clients (pluggable) ]
-  · Hermes skill (first integration) — cleans conversations with an LLM
-  · (future) CLI / web dashboard / other bots
-            │  HTTP (JSON)
+  · Agent memory (MCP: remember/recall, cleanup_*)   ← primary, dogfooded with Claude Code
+  · Humans (graph view in the browser)               ← same brain, different window
+  · (optional) HTTP-direct clients / bots / CLI
+            │  MCP (stdio) → HTTP   /   HTTP (JSON)
             ▼
 [ Engine core: second-brain-engine ]
-  /health · /search · /capture · /reindex · /delete
+  /health · /search · /ask · /capture · /graph · / (graph UI) · /note
+  /cleanup/candidates · /cleanup/merge · /classify · /classify-relations
             │
-   ┌────────┴───────────────┐
-notes folder (.md)      Chroma vector DB
-read / write            embedding index
+   ┌────────┼──────────────────────┬────────────────────────┐
+notes folder (.md)          Chroma vector DB           local LLM (Ollama gemma)
+read / write                embeddings + graph         merge · classify · answer
 ```
 
-The engine is client-agnostic — it only speaks HTTP/JSON. Hermes (a Discord bot)
-is currently the first and primary client, but nothing in the engine depends on it.
-
-## Layout
-
-```
-second-brain-engine/
-├── app/
-│   ├── config.py       # settings (SB_ env vars) — embedding provider, optional API key
-│   ├── embeddings.py   # provider presets (Ollama + OpenAI-compatible)
-│   ├── index.py        # Chroma indexing + incremental sync + search + capture/delete
-│   └── main.py         # FastAPI routes (/health, /search, /capture, /reindex, /delete)
-├── tests/              # chunking / frontmatter / path-safety + BrainIndex tests
-├── Dockerfile
-├── docker-compose.yml
-└── requirements.txt
-```
-
-## Prerequisites (local Ollama embeddings)
-
-```bash
-ollama pull bge-m3        # default model — strong multilingual / Korean
-```
-
-## Run — Option A: local Python
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows (use: source .venv/bin/activate on macOS/Linux)
-pip install -r requirements.txt
-copy .env.example .env          # optional — defaults work out of the box (cp on macOS/Linux)
-uvicorn app.main:app --port 8000
-```
-
-All settings have defaults (see `app/config.py`), so it runs out of the box.
-To override, copy `.env.example` to `.env` and edit it, or set `SB_`-prefixed environment variables.
-
-## Run — Option B: Docker
-
-```bash
-docker compose up -d
-```
-
-> ⚠️ For the container to reach Ollama on the host, run Ollama bound externally
-> (`OLLAMA_HOST=0.0.0.0`); otherwise the container can't reach `host.docker.internal:11434`.
+The engine is client-agnostic — it only speaks HTTP/JSON. The primary client is
+**agent memory over MCP** (dogfooded with Claude Code), and **humans read the same
+brain as a graph** in the browser. Anything that speaks HTTP can use it too.
 
 ## API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | status, embedding-backend health, indexed document count |
-| POST | `/search` | semantic search (see body below) |
-| POST | `/capture` | save a cleaned note + index it immediately (conversation → memory) |
+| GET  | `/health` | status, embedding-backend health, indexed document count |
+| GET  | `/` | graph view (single-page browser UI) |
+| GET  | `/graph` | nodes + edges (wiki-link · semantic-similar · relation) |
+| GET  | `/note?path=` | one note's body + metadata (powers the detail panel) |
+| POST | `/search` | semantic search (+ `linked` wiki-link neighbors) |
+| POST | `/ask` | RAG: search notes → local LLM answers **from them only** (strict) |
+| POST | `/capture` | save a cleaned note + index it immediately |
+| POST | `/delete` | `{"path": "inbox/note.md"}` → delete a note + its index entries |
 | POST | `/reindex` | force re-sync of changed notes |
-| POST | `/delete` | `{"path": "inbox/note.md"}` → delete a note file + its index entries |
+| GET  | `/cleanup/candidates` | near-duplicate note pairs (embedding similarity) |
+| POST | `/cleanup/merge` | merge duplicates (your text, or local-LLM summary) + rewire `[[links]]` |
+| POST | `/classify` | tag notes by type — concept / insight / procedure (node color) |
+| POST | `/classify-relations` | label similar pairs — supports / refutes / expands (relation edges) |
 
 ```bash
 curl -X POST http://localhost:8000/search \
@@ -127,19 +117,54 @@ curl -X POST http://localhost:8000/search \
 
 `tag`, `folder`, and `max_distance` are optional filters. With `include_links: true`
 (the default), each result also carries `linked` — the notes it points to via
-`[[wiki links]]` — so you recall a connected cluster, not just one chunk. Interactive
-API docs (Swagger UI) are available at `http://localhost:8000/docs`.
+`[[wiki links]]`. Interactive API docs (Swagger UI) are at `http://localhost:8000/docs`.
 
 ### Authentication (optional)
 
-`SB_API_KEY` is empty by default (no auth). If you set it, send it as an
-`X-API-Key` header on every route except `/health`.
+`SB_API_KEY` is empty by default (no auth). If you set it, send it as an `X-API-Key`
+header on every route except read-only ones (`/health`, `/graph`, `/note`, `/cleanup/candidates`).
+
+## Agent memory (MCP)
+
+The first-class client is an MCP server (`mcp_server.py`, stdio) that proxies the
+engine's HTTP API, so an agent like Claude Code can keep its own working memory:
+
+| MCP tool | Engine call | Use |
+|---|---|---|
+| `remember` | `POST /capture` | save a fact / decision / TODO learned in conversation |
+| `recall` | `POST /search` | recall by meaning (+ linked neighbors) |
+| `cleanup_candidates` | `GET /cleanup/candidates` | find duplicate memories before merging |
+| `cleanup_merge` | `POST /cleanup/merge` | merge duplicates into one note |
+
+Register it with `.mcp.json` (see `.mcp.json.example`) or `claude mcp add`, with the
+engine running on `localhost:8000`. The agent writes; you watch the result in the graph.
+
+## Graph view
+
+Open **http://localhost:8000** while the engine is running:
+
+- **Nodes** are notes, colored by type (concept / insight / procedure; gray = unclassified)
+- **Edges**: green = `[[wiki-link]]`, gray = semantic similarity, red = cleanup
+  candidate (duplicate), and **labeled relation edges** — teal *supports*, orange
+  *refutes*, purple *expands* (run `POST /classify-relations` to populate them)
+- **Click a node** to open a detail panel (title · type · tags · body · linked notes);
+  click a linked chip or an `/ask` source to jump to that node
+- **Question box** (bottom-left) runs `/ask` against your brain
+
+## Run with Docker
+
+```bash
+docker compose up -d
+```
+
+> ⚠️ For the container to reach Ollama on the host, run Ollama bound externally
+> (`OLLAMA_HOST=0.0.0.0`); otherwise it can't reach `host.docker.internal:11434`.
 
 ## Swapping embedding providers
 
 Switch backends by changing one env value (plus an API key for cloud providers),
 then restart. OpenAI-compatible servers (LM Studio, llama.cpp, TEI, OpenAI, Voyage,
-Gemini) all share one client — the provider name just selects a base-URL preset.
+Gemini) share one client — the provider name selects a base-URL preset.
 
 | provider | kind | default model | key |
 |---|---|---|---|
@@ -161,12 +186,32 @@ SB_EMBEDDING_PROVIDER=lmstudio
 SB_EMBED_MODEL=text-embedding-bge-m3   # whatever you loaded
 ```
 
-Override a preset with `SB_EMBED_BASE_URL` (e.g. a custom port) and `SB_EMBED_MODEL`.
 Changing the model changes vector dimensions, but the index is **kept per model**
 (`second_brain__<provider>_<model>`) — the engine auto-rebuilds the new one on the
 next search and keeps the old one, so switching back is instant.
 
 > Note: Anthropic has no embedding API; use `voyage` (its recommended partner) instead.
+> The generative LLM (cleanup / classify / ask) is local Ollama `gemma` by default,
+> swappable via `SB_LLM_*`.
+
+## Layout
+
+```
+second-brain-engine/
+├── app/
+│   ├── config.py        # settings (SB_ env vars) — embedding/LLM provider, optional API key
+│   ├── embeddings.py    # embedding provider presets (Ollama + OpenAI-compatible)
+│   ├── llm.py           # generative LLM (cleanup summary · node type · relation · ask)
+│   ├── cleanup.py       # near-duplicate detection (embedding, no LLM)
+│   ├── index.py         # Chroma indexing + incremental sync + search + capture/delete + relink
+│   ├── graph.py         # nodes/edges (wiki-link · similarity · relation)
+│   ├── main.py          # FastAPI routes
+│   └── static/graph.html# browser graph view (force-graph, single page)
+├── mcp_server.py        # MCP server (remember/recall/cleanup_*) → engine HTTP proxy
+├── examples/vault/      # bundled sample notes for the quickstart
+├── tests/               # pure functions + BrainIndex (fake embedder) + cleanup/relink/classify
+├── Dockerfile · docker-compose.yml · requirements.txt
+```
 
 ## Development
 
@@ -175,13 +220,6 @@ pip install -r requirements-dev.txt
 ruff check .
 pytest
 ```
-
-## Clients & integrations
-
-The engine is general-purpose — any client that speaks HTTP can use it. The first
-integration is **Hermes** (a Discord bot): it keeps a separate notes repo
-(`my-second-brain`) cloned locally, reads/writes files directly, and calls
-`/search` when it needs semantic recall. See `hermes-skill/second-brain/SKILL.md`.
 
 ## License
 

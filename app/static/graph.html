@@ -32,6 +32,22 @@
   #ask-btn { background: #89b4fa; color: #0b0e14; border: none; border-radius: 8px;
     padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
   #ask-btn:disabled { opacity: 0.5; cursor: default; }
+  #ask-answer .src { cursor: pointer; }
+  #detail { position: fixed; top: 14px; right: 14px; z-index: 10; width: 340px; max-width: 42vw;
+    max-height: calc(100vh - 28px); overflow-y: auto; display: none;
+    background: #11151f; border: 1px solid #1f2733; border-radius: 8px; padding: 14px 16px; }
+  #detail .dt-close { float: right; cursor: pointer; color: #9399b2; font-size: 16px; line-height: 1; }
+  #detail .dt-title { font-size: 15px; font-weight: 600; margin-right: 8px; }
+  #detail .dt-badge { display: inline-block; border-radius: 4px; padding: 1px 7px;
+    font-size: 12px; font-weight: 600; color: #0b0e14; vertical-align: middle; }
+  #detail .dt-meta { color: #9399b2; font-size: 12px; margin: 6px 0 10px; word-break: break-all; }
+  #detail .dt-body { white-space: pre-wrap; line-height: 1.6; font-size: 13px;
+    border-top: 1px solid #1f2733; padding-top: 10px; }
+  #detail .dt-links { margin-top: 12px; border-top: 1px solid #1f2733; padding-top: 10px;
+    font-size: 12px; color: #9399b2; }
+  #detail .dt-link { display: inline-block; background: #1f2733; border-radius: 4px;
+    padding: 2px 7px; margin: 3px 4px 0 0; cursor: pointer; color: #cdd6f4; }
+  #detail .dt-link:hover { background: #2a3543; }
 </style>
 </head>
 <body>
@@ -58,6 +74,7 @@
     <button id="ask-btn">묻기</button>
   </div>
 </div>
+<div id="detail"></div>
 <script src="https://unpkg.com/force-graph"></script>
 <script>
 Promise.all([
@@ -104,7 +121,12 @@ Promise.all([
         ctx.textBaseline = 'top';
         ctx.fillText(label, n.x, n.y + 6 / scale);
       })
-      .onNodeClick(n => { g.centerAt(n.x, n.y, 600); g.zoom(4, 600); });
+      .onNodeClick(n => { g.centerAt(n.x, n.y, 600); g.zoom(4, 600); showDetail(n); });
+
+    // 노드 상세 패널·점프가 참조하도록 그래프 인스턴스와 노드/엣지를 전역에 노출
+    GRAPH = g;
+    NODES = data.nodes;
+    LINKS = links;
   })
   .catch(err => {
     document.getElementById('stat').textContent = '그래프 로드 실패: ' + err;
@@ -138,6 +160,7 @@ function renderAnswer(answer, sources) {
       const chip = document.createElement('span');
       chip.className = 'src';
       chip.textContent = s.heading || s.path;
+      chip.addEventListener('click', () => focusNode(s.path));
       srcs.append(chip, ' ');
     }
     askAnswer.appendChild(srcs);
@@ -166,6 +189,93 @@ async function doAsk() {
 }
 askBtn.addEventListener('click', doAsk);
 askInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAsk(); });
+
+// ── 노드 상세 패널(T1): 클릭한 노트의 본문·메타·연결을 측면에 띄운다 ──
+// GRAPH/NODES/LINKS는 그래프가 그려진 뒤 then 안에서 채워진다(클릭은 그 후라 안전).
+let GRAPH = null, NODES = [], LINKS = [];
+const detailEl = document.getElementById('detail');
+const TYPE_BADGE = { '의미': '#89b4fa', '통찰': '#f9e2af', '절차': '#a6e3a1' };
+const idOf = x => (x && typeof x === 'object') ? x.id : x;  // force-graph가 source/target을 객체로 바꿈
+
+function focusNode(id) {
+  const n = NODES.find(x => x.id === id);
+  if (!n) return;
+  if (GRAPH && n.x != null) { GRAPH.centerAt(n.x, n.y, 600); GRAPH.zoom(4, 600); }
+  showDetail(n);
+}
+
+async function showDetail(node) {
+  detailEl.style.display = 'block';
+  detailEl.replaceChildren();
+  const muted = document.createElement('div');
+  muted.style.color = '#9399b2';
+  muted.textContent = '불러오는 중…';
+  detailEl.appendChild(muted);
+  try {
+    const r = await fetch('/note?path=' + encodeURIComponent(node.id));
+    if (!r.ok) throw new Error('노트를 찾을 수 없음');
+    renderDetail(await r.json(), node);
+  } catch (e) {
+    muted.textContent = '노트 로드 실패: ' + e;
+  }
+}
+
+function renderDetail(d, node) {
+  detailEl.replaceChildren();
+
+  const close = document.createElement('span');
+  close.className = 'dt-close';
+  close.textContent = '✕';
+  close.addEventListener('click', () => { detailEl.style.display = 'none'; });
+  detailEl.appendChild(close);
+
+  const head = document.createElement('div');
+  const title = document.createElement('span');
+  title.className = 'dt-title';
+  title.textContent = d.title || node.id;
+  head.appendChild(title);
+  if (d.type) {
+    const badge = document.createElement('span');
+    badge.className = 'dt-badge';
+    badge.style.background = TYPE_BADGE[d.type] || '#6b7280';
+    badge.textContent = d.type;
+    head.appendChild(badge);
+  }
+  detailEl.appendChild(head);
+
+  const meta = document.createElement('div');
+  meta.className = 'dt-meta';
+  const bits = [];
+  if (d.tags && d.tags.length) bits.push('🏷 ' + d.tags.join(', '));
+  if (d.created) bits.push('📅 ' + d.created);
+  bits.push(d.path);
+  meta.textContent = bits.join(' · ');
+  detailEl.appendChild(meta);
+
+  const body = document.createElement('div');
+  body.className = 'dt-body';
+  body.textContent = d.body || '(빈 노트)';
+  detailEl.appendChild(body);
+
+  // 위키링크 엣지로 연결된 노트 → 클릭하면 그 노드로 점프
+  const connected = [...new Set(LINKS
+    .filter(l => l.type === 'link' && (idOf(l.source) === node.id || idOf(l.target) === node.id))
+    .map(l => idOf(l.source) === node.id ? idOf(l.target) : idOf(l.source)))];
+  if (connected.length) {
+    const wrap = document.createElement('div');
+    wrap.className = 'dt-links';
+    wrap.append('🔗 연결: ');
+    for (const id of connected) {
+      const n = NODES.find(x => x.id === id);
+      const chip = document.createElement('span');
+      chip.className = 'dt-link';
+      chip.textContent = (n && n.label) || id;
+      chip.addEventListener('click', () => focusNode(id));
+      wrap.append(chip, ' ');
+    }
+    detailEl.appendChild(wrap);
+  }
+}
 </script>
 </body>
 </html>

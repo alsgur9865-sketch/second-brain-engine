@@ -14,7 +14,7 @@ from .cleanup import find_duplicate_candidates
 from .config import Settings
 from .embeddings import get_embedder
 from .graph import build_graph
-from .index import BrainIndex, _safe_rel, parse_frontmatter
+from .index import BrainIndex, _safe_rel, _strip_frontmatter, parse_frontmatter
 from .llm import answer_question, get_llm, summarize_merge
 
 settings = Settings()
@@ -107,6 +107,31 @@ def graph() -> dict:
     if settings.auto_sync_on_search:
         brain.sync()
     return build_graph(brain)
+
+
+@app.get("/note")
+def note(path: str) -> dict:
+    """노트 한 개의 본문 + 메타(제목/유형/태그/생성일)를 반환. 그래프 노드 클릭 시 상세 패널용.
+
+    읽기 전용이라 /graph처럼 인증을 두지 않는다(로컬 도구). path는 노트 폴더 기준 상대경로.
+    """
+    safe = _safe_rel(path)
+    if not safe:
+        raise HTTPException(status_code=400, detail="안전하지 않은 경로")
+    full = os.path.join(settings.notes_path, safe)
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="노트를 찾을 수 없다")
+    with open(full, encoding="utf-8") as f:
+        text = f.read()
+    fm = parse_frontmatter(text)
+    return {
+        "path": safe,
+        "title": fm["title"],
+        "type": fm["type"],
+        "tags": [t for t in fm["tags"].split(",") if t],
+        "created": fm["created"],
+        "body": _strip_frontmatter(text),
+    }
 
 
 @app.post("/search", dependencies=[Depends(require_api_key)])

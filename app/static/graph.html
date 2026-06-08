@@ -65,6 +65,11 @@
     <span><i class="dot" style="background:#64748b"></i>의미 유사</span>
     <span><i class="dot" style="background:#ef4444"></i>정리 후보(중복)</span>
   </div>
+  <div class="legend">
+    <span><i class="dot" style="background:#2dd4bf"></i>지지</span>
+    <span><i class="dot" style="background:#fb923c"></i>반박</span>
+    <span><i class="dot" style="background:#c084fc"></i>확장</span>
+  </div>
 </div>
 <div id="graph"></div>
 <div id="ask">
@@ -102,15 +107,32 @@ Promise.all([
     const TYPE_COLORS = { '의미': '#89b4fa', '통찰': '#f9e2af', '절차': '#a6e3a1' };
     const colorFor = t => TYPE_COLORS[t] || '#6b7280';
 
+    // 의미 관계 엣지 색 (지지/반박/확장 — 무관은 엣지가 없음)
+    const REL_COLORS = { '지지': '#2dd4bf', '반박': '#fb923c', '확장': '#c084fc' };
+
     const g = ForceGraph()(document.getElementById('graph'))
       .graphData({ nodes: data.nodes, links })
       .backgroundColor('#0b0e14')
       .nodeRelSize(5)
       .nodeColor(n => colorFor(n.type))
-      .linkColor(l => l.type === 'link' ? '#4ade80' : l.type === 'dup' ? '#ef4444' : '#475569')
-      .linkWidth(l => l.type === 'dup' ? 4 : l.type === 'similar' ? (l.weight || 0.5) * 2 : 1.8)
+      .linkColor(l => l.type === 'link' ? '#4ade80' : l.type === 'dup' ? '#ef4444'
+        : l.type === 'relation' ? (REL_COLORS[l.label] || '#94a3b8') : '#475569')
+      .linkWidth(l => l.type === 'dup' ? 4 : l.type === 'relation' ? 2.5
+        : l.type === 'similar' ? (l.weight || 0.5) * 2 : 1.8)
       .linkDirectionalParticles(l => l.type === 'link' ? 2 : 0)
       .linkDirectionalParticleWidth(2)
+      .linkCanvasObjectMode(l => l.type === 'relation' ? 'after' : undefined)
+      .linkCanvasObject((l, ctx, scale) => {
+        // 관계 엣지 중앙에 라벨(지지/반박/확장) 텍스트
+        const s = l.source, t = l.target;
+        if (l.type !== 'relation' || typeof s !== 'object' || typeof t !== 'object') return;
+        const fs = 10 / scale;
+        ctx.font = `${fs}px system-ui, "Malgun Gothic", sans-serif`;
+        ctx.fillStyle = REL_COLORS[l.label] || '#94a3b8';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(l.label, (s.x + t.x) / 2, (s.y + t.y) / 2);
+      })
       .nodeCanvasObjectMode(() => 'after')
       .nodeCanvasObject((n, ctx, scale) => {
         const label = n.label || n.id;

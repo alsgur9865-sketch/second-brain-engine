@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from app.cleanup import find_duplicate_candidates
 from app.index import BrainIndex, parse_frontmatter
-from app.llm import answer_question, classify_note
+from app.llm import answer_question, classify_note, classify_relation
 
 
 class _FakeEmbedder:
@@ -151,3 +151,26 @@ def test_ask_노트를_컨텍스트로_프롬프트에_넣는다():
     assert answer_question(_Spy(), "포트 번호?", notes) == "8000번입니다"
     assert "8000번 포트를 쓴다" in captured["prompt"]   # snippet이 프롬프트에 포함
     assert "포트 번호?" in captured["prompt"]           # 질문도 포함
+
+
+def test_classify_relation_셋_중_아니면_무관_폴백():
+    assert classify_relation(_FakeLLM("이건 지지 관계다"), "a", "b") == "지지"
+    assert classify_relation(_FakeLLM("잘 모르겠다"), "a", "b") == "무관"
+
+
+def test_classify_relations_의미유사쌍_분류후_캐싱_재호출skip(tmp_path):
+    brain = _make_brain(tmp_path)
+    # 길이가 비슷한 두 노트 → 가짜 임베더에서 의미유사 엣지로 잡힌다
+    a = brain.add_note("결정 A", "환불은 14일 이내 가능하다고 본다", [], "inbox")
+    b = brain.add_note("결정 B", "환불은 14일 안에 해줘야 한다고 본다", [], "inbox")
+
+    r1 = brain.classify_relations(_FakeLLM("지지"))
+    assert len(r1["classified"]) >= 1
+    front = min(a, b)                        # 관계는 사전순 앞 노트에 기록된다
+    text = _read(brain, front)
+    assert "relations:" in text and "지지" in text
+
+    # 재호출 → 분류된 쌍은 relation 엣지로 승격돼 similar 후보에서 빠진다(재분류·재기록 안 함)
+    r2 = brain.classify_relations(_FakeLLM("반박"))
+    assert r2["classified"] == []
+    assert "지지" in _read(brain, front) and "반박" not in _read(brain, front)

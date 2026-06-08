@@ -247,3 +247,12 @@ def cleanup_merge(req: MergeRequest) -> dict:
 def classify() -> dict:
     """frontmatter에 type이 없는 노트를 LLM(의미/통찰/절차)으로 분류해 채운다(이미 있으면 skip)."""
     return brain.classify_unclassified(get_llm(settings))
+
+
+@app.post("/classify-relations", dependencies=[Depends(require_api_key)])
+def classify_relations() -> dict:
+    """의미유사 노트 쌍을 지지/반박/확장/무관으로 분류해 frontmatter에 캐싱(무관 포함, 재호출 skip).
+
+    ②안 B 마지막 조각. 그래프는 무관 외를 라벨 엣지로 그려 '생각의 흐름'을 보인다.
+    """
+    return brain.classify_relations(get_llm(settings))

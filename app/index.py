@@ -10,7 +10,7 @@ import re
 import chromadb
 
 from .embeddings import EmbeddingProvider
-from .llm import classify_note
+from .llm import classify_note, classify_relation
 
 _HEADING = re.compile(r"^#{1,3}\s")
 _UNSAFE = re.compile(r'[\\/:*?"<>|]')
@@ -62,7 +62,7 @@ def parse_frontmatter(text: str) -> dict[str, str]:
     Chroma 메타데이터는 스칼라만 허용하므로 tags는 콤마 문자열로 평탄화한다.
     프론트매터가 없으면 빈 값.
     """
-    meta = {"title": "", "tags": "", "created": "", "type": ""}
+    meta = {"title": "", "tags": "", "created": "", "type": "", "relations": ""}
     if not text.startswith("---"):
         return meta
     end = text.find("\n---", 3)
@@ -82,6 +82,9 @@ def parse_frontmatter(text: str) -> dict[str, str]:
             meta["created"] = val
         elif key == "type":
             meta["type"] = val
+        elif key == "relations":
+            items = [r.strip() for r in val.split(",") if r.strip()]
+            meta["relations"] = ",".join(items)
     return meta
 
 
@@ -137,6 +140,38 @@ def _strip_frontmatter(text: str) -> str:
     if end == -1:
         return text
     return text[end + 4:].lstrip("-\n").lstrip()
+
+
+def _parse_relations(s: str) -> dict[str, str]:
+    """'targetA::지지, targetB::무관' 평탄화 문자열 → {target_path: relation}."""
+    out: dict[str, str] = {}
+    for item in (s or "").split(","):
+        target, sep, rel = item.partition("::")
+        target, rel = target.strip(), rel.strip()
+        if sep and target:
+            out[target] = rel
+    return out
+
+
+def _set_frontmatter_field(text: str, key: str, value: str) -> str:
+    """맨 위 `--- ... ---` 프론트매터에서 `key: ...` 줄을 value로 교체(없으면 끝에 추가).
+    relations처럼 갱신이 필요한 필드용(type의 단순 삽입과 달리 중복 줄을 만들지 않는다).
+    프론트매터가 없으면 원문 그대로(대상 아님)."""
+    if not text.startswith("---"):
+        return text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return text
+    lines = text[3:end].splitlines()
+    replaced = False
+    for i, line in enumerate(lines):
+        if line.split(":", 1)[0].strip() == key:
+            lines[i] = f"{key}: {value}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{key}: {value}")
+    return "---" + "\n".join(lines) + text[end:]
 
 
 class BrainIndex:
@@ -219,6 +254,7 @@ class BrainIndex:
                     "tags": fm["tags"],
                     "created": fm["created"],
                     "type": fm["type"],
+                    "relations": fm["relations"],
                     "links": links,
                 }
             )
@@ -350,6 +386,67 @@ class BrainIndex:
                 f.write(new_text)
             self._index_file(rel, int(os.path.getmtime(full)))
             classified.append({"path": rel, "type": note_type})
+        return {"classified": classified, "skipped": skipped}
+
+    # ---------- 의미 관계 분류 ----------
+    def _note_relations(self, rel_path: str) -> dict[str, str]:
+        """노트 frontmatter의 relations → {target: relation}. 이미 분류된 쌍 skip 판정용."""
+        full = os.path.join(self.notes_path, rel_path)
+        if not os.path.isfile(full):
+            return {}
+        with open(full, encoding="utf-8") as f:
+            return _parse_relations(parse_frontmatter(f.read())["relations"])
+
+    def _note_body(self, rel_path: str) -> str:
+        """노트 본문(프론트매터 뗀). 관계 분류 입력용."""
+        full = os.path.join(self.notes_path, rel_path)
+        if not os.path.isfile(full):
+            return ""
+        with open(full, encoding="utf-8") as f:
+            return _strip_frontmatter(f.read())
+
+    def _add_relations(self, rel_path: str, rels: list[tuple[str, str]]) -> None:
+        """노트 frontmatter의 relations에 (target, relation)들을 병합 기록하고 재인덱싱."""
+        full = os.path.join(self.notes_path, rel_path)
+        if not os.path.isfile(full):
+            return
+        with open(full, encoding="utf-8") as f:
+            text = f.read()
+        merged = _parse_relations(parse_frontmatter(text)["relations"])
+        for target, rel in rels:
+            merged[target] = rel
+        joined = ", ".join(f"{t}::{r}" for t, r in merged.items())
+        new_text = _set_frontmatter_field(text, "relations", joined)
+        if new_text == text:
+            return
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(new_text)
+        self._index_file(rel_path, int(os.path.getmtime(full)))
+
+    def classify_relations(self, llm) -> dict:
+        """의미유사 노트 쌍(graph)을 LLM으로 지지/반박/확장/무관 분류해
+        사전순 앞 노트 frontmatter의 relations에 캐싱한다(무관 포함, 재호출 skip).
+        무관은 그래프 엣지로 그리지 않지만 재분류를 막으려 함께 기록한다."""
+        from .graph import build_graph  # 순환 import 회피(graph가 index를 임포트)
+
+        graph = build_graph(self)
+        pairs = sorted({
+            tuple(sorted((e["source"], e["target"])))
+            for e in graph["edges"] if e["type"] == "similar"
+        })
+
+        classified: list[dict] = []
+        skipped = 0
+        to_add: dict[str, list[tuple[str, str]]] = {}
+        for a, b in pairs:
+            if b in self._note_relations(a):
+                skipped += 1
+                continue
+            rel = classify_relation(llm, self._note_body(a), self._note_body(b))
+            to_add.setdefault(a, []).append((b, rel))
+            classified.append({"a": a, "b": b, "relation": rel})
+        for path, rels in to_add.items():
+            self._add_relations(path, rels)
         return {"classified": classified, "skipped": skipped}
 
     # ---------- 그래프(위키링크) ----------

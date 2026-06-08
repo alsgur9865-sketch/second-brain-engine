@@ -39,6 +39,7 @@ def build_graph(
                 "title": meta.get("title", ""),
                 "tags": meta.get("tags", ""),
                 "type": meta.get("type", ""),
+                "relations": meta.get("relations", ""),
                 "links": meta.get("links", ""),
             }
             vecs[path] = []
@@ -83,7 +84,27 @@ def build_graph(
                     seen_edge.add(key)
                     edges.append({"source": p, "target": tp, "type": "link"})
 
-    # ---- 엣지 ②: 의미 유사도(무방향 top-k) ----
+    # ---- 엣지 ②: 의미 관계(frontmatter relations, 무관 제외) ----
+    # relations는 사전순 앞 노트에 'target_path::관계'로 저장. 무관은 엣지를 안 그리되,
+    # 분류된 쌍(무관 포함)은 의미유사 회색 선도 억제한다(이미 판단된 쌍의 중복 표시 방지).
+    rel_suppress: set = set()
+    for p in paths:
+        for item in (by_path[p]["relations"] or "").split(","):
+            target, sep, label = item.partition("::")
+            target, label = target.strip(), label.strip()
+            if not sep or target not in by_path or target == p:
+                continue
+            rel_suppress.add(tuple(sorted((p, target))))
+            if label == "무관":
+                continue
+            key = ("rel", *sorted((p, target)))
+            if key not in seen_edge:
+                seen_edge.add(key)
+                edges.append(
+                    {"source": p, "target": target, "type": "relation", "label": label}
+                )
+
+    # ---- 엣지 ③: 의미 유사도(무방향 top-k) ----
     sims = unit @ unit.T  # 코사인 유사도 행렬 (정규화돼 있으므로 내적 = 코사인)
     n = len(paths)
     for i in range(n):
@@ -94,6 +115,8 @@ def build_graph(
             if score < sim_min:
                 continue
             a, b = paths[i], paths[int(j)]
+            if tuple(sorted((a, b))) in rel_suppress:
+                continue  # 의미 관계가 분류된 쌍은 라벨 엣지로 대체(무관이면 생략)
             key = ("sim", *sorted((a, b)))  # 무방향 → 정렬해 중복 제거
             if key in seen_edge:
                 continue

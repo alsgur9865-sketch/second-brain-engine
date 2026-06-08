@@ -109,3 +109,27 @@ def answer_question(llm, question: str, notes: list[dict]) -> str:
         f"=== 질문 ===\n{question}\n\n답변:"
     )
     return llm.generate(prompt)
+
+
+RELATION_TYPES = ("지지", "반박", "확장", "무관")
+
+
+def classify_relation(llm, a: str, b: str) -> str:
+    """두 노트의 의미 관계를 지지/반박/확장/무관 중 하나로 분류. 애매하면 '무관' 폴백.
+
+    a, b는 프론트매터를 뗀 본문을 넘긴다(분류 정확도↑). '무관'은 단어만 겹치고
+    실제 의미 관계가 없는 쌍 — 그래프에 엣지를 그리지 않아 억지 라벨로 인한 오염을 막는다.
+    """
+    prompt = (
+        "두 노트의 관계를 정확히 한 단어로 분류하라. 반드시 지지/반박/확장/무관 중 하나만 출력.\n"
+        "- 지지: 같은 주장·방향을 뒷받침\n"
+        "- 반박: 서로 충돌·반대\n"
+        "- 확장: 한쪽이 다른 쪽을 구체화·발전\n"
+        "- 무관: 단어만 겹치고 의미 관계 없음\n\n"
+        f"[노트 A]\n{a}\n\n[노트 B]\n{b}\n\n관계:"
+    )
+    out = llm.generate(prompt)
+    for t in RELATION_TYPES:
+        if t in out:
+            return t
+    return "무관"

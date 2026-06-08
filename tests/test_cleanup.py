@@ -5,7 +5,8 @@ import os
 from types import SimpleNamespace
 
 from app.cleanup import find_duplicate_candidates
-from app.index import BrainIndex
+from app.index import BrainIndex, parse_frontmatter
+from app.llm import classify_note
 
 
 class _FakeEmbedder:
@@ -89,3 +90,35 @@ def test_relink_관련없는_링크는_그대로다(tmp_path):
     changed = brain.relink({"포트 바꾸기"}, "엔진 포트 변경 방법", skip=set())
     assert changed == []
     assert "[[다른 노트]]" in _read(brain, a)
+
+
+class _FakeLLM:
+    """고정 응답 LLM — 분류 테스트용(네트워크 0)."""
+
+    def __init__(self, resp="통찰"):
+        self.resp = resp
+
+    def generate(self, prompt):
+        return self.resp
+
+
+def test_classify_미분류만_분류하고_재호출은_skip(tmp_path):
+    brain = _make_brain(tmp_path)
+    p = brain.add_note("노트", "어떤 내용", [], "inbox")
+    r1 = brain.classify_unclassified(_FakeLLM("통찰"))
+    assert {"path": p, "type": "통찰"} in r1["classified"]
+    assert "type: 통찰" in _read(brain, p)
+    # 재호출 → type 이미 있으니 skip, 덮어쓰지 않음
+    r2 = brain.classify_unclassified(_FakeLLM("절차"))
+    assert r2["classified"] == [] and r2["skipped"] >= 1
+    assert "type: 통찰" in _read(brain, p)
+
+
+def test_classify_note_셋_중_아니면_의미_폴백():
+    assert classify_note(_FakeLLM("이건 절차에 가깝다"), "t", "c") == "절차"
+    assert classify_note(_FakeLLM("잘 모르겠다"), "t", "c") == "의미"
+
+
+def test_parse_frontmatter가_type을_읽는다():
+    fm = parse_frontmatter("---\ntitle: A\ntype: 절차\n---\n\n# A\n본문")
+    assert fm["type"] == "절차"

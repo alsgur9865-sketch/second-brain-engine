@@ -38,6 +38,7 @@ def build_graph(
             by_path[path] = {
                 "title": meta.get("title", ""),
                 "tags": meta.get("tags", ""),
+                "type": meta.get("type", ""),
                 "links": meta.get("links", ""),
             }
             vecs[path] = []
@@ -60,6 +61,7 @@ def build_graph(
                 "id": p,
                 "label": info["title"] or stem,
                 "folder": _note_folder(p),
+                "type": info["type"],
                 "tags": [t for t in info["tags"].split(",") if t],
             }
         )

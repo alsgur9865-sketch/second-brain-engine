@@ -10,6 +10,7 @@ import re
 import chromadb
 
 from .embeddings import EmbeddingProvider
+from .llm import classify_note
 
 _HEADING = re.compile(r"^#{1,3}\s")
 _UNSAFE = re.compile(r'[\\/:*?"<>|]')
@@ -61,7 +62,7 @@ def parse_frontmatter(text: str) -> dict[str, str]:
     Chroma 메타데이터는 스칼라만 허용하므로 tags는 콤마 문자열로 평탄화한다.
     프론트매터가 없으면 빈 값.
     """
-    meta = {"title": "", "tags": "", "created": ""}
+    meta = {"title": "", "tags": "", "created": "", "type": ""}
     if not text.startswith("---"):
         return meta
     end = text.find("\n---", 3)
@@ -79,6 +80,8 @@ def parse_frontmatter(text: str) -> dict[str, str]:
             meta["tags"] = ",".join(items)
         elif key == "created":
             meta["created"] = val
+        elif key == "type":
+            meta["type"] = val
     return meta
 
 
@@ -113,6 +116,27 @@ def _safe_rel(path: str, default: str = "") -> str:
 def _norm_name(s: str) -> str:
     """링크 텍스트/제목 매칭용 정규화(앞뒤 공백 제거 + 소문자)."""
     return s.strip().lower()
+
+
+def _insert_frontmatter_type(text: str, note_type: str) -> str:
+    """맨 위 `--- ... ---` 프론트매터 끝에 `type: <note_type>` 한 줄을 끼워 넣는다.
+    프론트매터가 없으면 원문 그대로(분류 대상이 아님)."""
+    if not text.startswith("---"):
+        return text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return text
+    return text[:end] + f"\ntype: {note_type}" + text[end:]
+
+
+def _strip_frontmatter(text: str) -> str:
+    """맨 위 `--- ... ---` 프론트매터를 떼고 본문만 반환(분류 입력 정제용)."""
+    if not text.startswith("---"):
+        return text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return text
+    return text[end + 4:].lstrip("-\n").lstrip()
 
 
 class BrainIndex:
@@ -194,6 +218,7 @@ class BrainIndex:
                     "title": fm["title"],
                     "tags": fm["tags"],
                     "created": fm["created"],
+                    "type": fm["type"],
                     "links": links,
                 }
             )
@@ -301,6 +326,31 @@ class BrainIndex:
                 self._index_file(rel, int(os.path.getmtime(full)))
                 changed.append(rel)
         return changed
+
+    # ---------- 노드 유형 분류 ----------
+    def classify_unclassified(self, llm) -> dict:
+        """frontmatter에 type이 없는 노트만 LLM으로 의미/통찰/절차로 분류해
+        frontmatter에 써넣고 재인덱싱한다. type이 이미 있으면 건너뛴다(캐싱)."""
+        classified: list[dict] = []
+        skipped = 0
+        for rel in self._scan_disk():
+            full = os.path.join(self.notes_path, rel)
+            with open(full, encoding="utf-8") as f:
+                text = f.read()
+            fm = parse_frontmatter(text)
+            if fm["type"]:
+                skipped += 1
+                continue
+            note_type = classify_note(llm, fm["title"] or rel, _strip_frontmatter(text))
+            new_text = _insert_frontmatter_type(text, note_type)
+            if new_text == text:        # 프론트매터 없는 노트는 분류 대상 아님
+                skipped += 1
+                continue
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(new_text)
+            self._index_file(rel, int(os.path.getmtime(full)))
+            classified.append({"path": rel, "type": note_type})
+        return {"classified": classified, "skipped": skipped}
 
     # ---------- 그래프(위키링크) ----------
     def _name_index(self) -> dict[str, str]:

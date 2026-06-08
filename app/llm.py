@@ -63,3 +63,23 @@ def summarize_merge(llm, notes: list[dict]) -> tuple[str, str]:
         f"{joined}"
     )
     return _split_title(llm.generate(prompt))
+
+
+NOTE_TYPES = ("의미", "통찰", "절차")
+
+
+def classify_note(llm, title: str, content: str) -> str:
+    """노트를 의미/통찰/절차 중 하나로 분류. 셋 중 아무것도 못 찾으면 '의미'로 폴백.
+    content는 프론트매터를 뗀 본문을 넘기는 것이 분류 정확도가 높다."""
+    prompt = (
+        "노트를 정확히 한 단어로 분류하라. 반드시 의미/통찰/절차 중 하나만 출력(다른 말 금지).\n"
+        "- 의미: 개념·정의·용어 설명\n"
+        "- 통찰: 의견·판단·결정·방향성\n"
+        "- 절차: 실행 방법·명령어·설정 단계\n\n"
+        f"제목: {title}\n내용: {content}\n분류:"
+    )
+    out = llm.generate(prompt)
+    for t in NOTE_TYPES:
+        if t in out:
+            return t
+    return "의미"

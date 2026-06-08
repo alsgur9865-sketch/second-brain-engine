@@ -193,3 +193,9 @@ def cleanup_merge(req: MergeRequest) -> dict:
         removed.append(safe)
     relinked = brain.relink(old_names, title, skip={new_path})
     return {"merged": new_path, "removed": removed, "relinked": relinked}
+
+
+@app.post("/classify", dependencies=[Depends(require_api_key)])
+def classify() -> dict:
+    """frontmatter에 type이 없는 노트를 LLM(의미/통찰/절차)으로 분류해 채운다(이미 있으면 skip)."""
+    return brain.classify_unclassified(get_llm(settings))

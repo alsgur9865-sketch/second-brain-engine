@@ -53,7 +53,7 @@ def test_프론트매터_태그_날짜_추출():
 
 
 def test_프론트매터_없으면_빈값():
-    assert parse_frontmatter("# 제목\n본문") == {"title": "", "tags": "", "created": ""}
+    assert parse_frontmatter("# 제목\n본문") == {"title": "", "tags": "", "created": "", "type": ""}
 
 
 def test_위키링크_추출():

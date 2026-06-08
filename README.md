@@ -156,6 +156,10 @@ Open **http://localhost:8000** while the engine is running:
 - **Click a node** to open a detail panel (title · type · tags · body · linked notes);
   click a linked chip or an `/ask` source to jump to that node
 - **Question box** (bottom-left) runs `/ask` against your brain
+- **Language toggle** (top-right) switches the UI between Korean and English —
+  auto-detects your browser language and remembers your choice. Type/relation labels are
+  mapped (e.g. `의미 → Concept`), while note titles and bodies stay in the language you
+  wrote them in (your content is never auto-translated)
 
 ## Run with Docker
 

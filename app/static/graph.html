@@ -2,6 +2,7 @@
 <!-- File: app/static/graph.html -->
 <!-- 사람이 보는 그래프 뷰. /graph(JSON)를 받아 force-graph로 노드/엣지를 그린다. -->
 <!-- /cleanup/candidates로 중복 후보 쌍을 빨갛게 강조한다. 빌드툴 없음(CDN 단일 페이지). -->
+<!-- UI는 한/영 전환(브라우저 언어 자동 + KO/EN 토글, localStorage 기억). -->
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
@@ -13,8 +14,12 @@
   #hud { position: fixed; top: 12px; left: 14px; z-index: 10; font-size: 13px; line-height: 1.7;
     background: rgba(11,14,20,0.55); padding: 10px 12px; border-radius: 10px;
     border: 1px solid #1b2230; backdrop-filter: blur(3px); }
-  #hud b { font-size: 16px; }
-  #stat { color: #9399b2; margin-bottom: 4px; }
+  .hud-top { display: flex; align-items: center; gap: 8px; }
+  #hud-title { font-size: 16px; font-weight: 700; }
+  #lang-toggle { margin-left: auto; background: #1f2733; color: #cdd6f4; border: 1px solid #313b4d;
+    border-radius: 6px; padding: 2px 9px; font-size: 11px; font-weight: 600; cursor: pointer; }
+  #lang-toggle:hover { background: #2a3543; }
+  #stat { color: #9399b2; margin: 4px 0; }
   .legend { margin-top: 5px; }
   .legend-title { color: #6b7280; font-size: 11px; text-transform: uppercase;
     letter-spacing: 0.04em; margin: 7px 0 2px; }
@@ -60,34 +65,19 @@
 </head>
 <body>
 <div id="hud">
-  <b>🧠 Second Brain</b>
-  <div id="stat">불러오는 중…</div>
-  <div class="legend-title">노드 — 노트 유형</div>
-  <div class="legend">
-    <span><i class="dot" style="background:#89b4fa"></i>의미<em>개념·정의</em></span>
-    <span><i class="dot" style="background:#f9e2af"></i>통찰<em>판단·결정</em></span>
-    <span><i class="dot" style="background:#a6e3a1"></i>절차<em>방법·설정</em></span>
-    <span><i class="dot" style="background:#6b7280"></i>미분류</span>
+  <div class="hud-top">
+    <b id="hud-title">🧠 Second Brain</b>
+    <button id="lang-toggle">EN</button>
   </div>
-  <div class="legend-title">선 — 연결</div>
-  <div class="legend">
-    <span><i class="line" style="border-color:#4ade80"></i>위키링크<em>직접 연결</em></span>
-    <span><i class="line" style="border-color:#64748b"></i>의미 유사<em>비슷한 내용</em></span>
-    <span><i class="line" style="border-color:#ef4444"></i>정리 후보<em>중복 의심</em></span>
-  </div>
-  <div class="legend-title">선 — 의미 관계</div>
-  <div class="legend">
-    <span><i class="line" style="border-color:#2dd4bf"></i>지지<em>뒷받침</em></span>
-    <span><i class="line" style="border-color:#fb923c"></i>반박<em>충돌</em></span>
-    <span><i class="line" style="border-color:#c084fc"></i>확장<em>구체화</em></span>
-  </div>
+  <div id="stat"></div>
+  <div id="legend-area"></div>
 </div>
 <div id="graph"></div>
 <div id="ask">
   <div id="ask-answer"></div>
   <div id="ask-bar">
-    <input id="ask-input" placeholder="내 뇌에 질문…(Enter)" autocomplete="off" />
-    <button id="ask-btn">묻기</button>
+    <input id="ask-input" autocomplete="off" />
+    <button id="ask-btn"></button>
   </div>
 </div>
 <div id="detail"></div>
@@ -95,6 +85,116 @@
 <script>
 const idOf = x => (x && typeof x === 'object') ? x.id : x;  // force-graph가 source/target을 객체로 바꿈
 const truncate = (s, n) => { const a = [...String(s)]; return a.length > n ? a.slice(0, n).join('') + '…' : s; };
+
+// ── i18n: 노드 유형/관계는 데이터 값(한국어)이라 표시만 매핑한다 ──
+const I18N = {
+  ko: {
+    title: "🧠 Second Brain",
+    loading: "불러오는 중…",
+    stat: (n, e, dup) => `${n} 노드 · ${e} 엣지${dup ? ` · ⚠ 정리 후보 ${dup}쌍` : ''}`,
+    legendNode: "노드 — 노트 유형", legendLink: "선 — 연결", legendRel: "선 — 의미 관계",
+    types: { '의미': '의미', '통찰': '통찰', '절차': '절차', unclassified: '미분류' },
+    typeDesc: { '의미': '개념·정의', '통찰': '판단·결정', '절차': '방법·설정' },
+    links: { wiki: '위키링크', sim: '의미 유사', dup: '정리 후보' },
+    linkDesc: { wiki: '직접 연결', sim: '비슷한 내용', dup: '중복 의심' },
+    rels: { '지지': '지지', '반박': '반박', '확장': '확장' },
+    relDesc: { '지지': '뒷받침', '반박': '충돌', '확장': '구체화' },
+    askPlaceholder: "내 뇌에 질문…(Enter)", askBtn: "묻기", thinking: "생각 중…",
+    evidence: "근거: ", askFail: "질문 실패: ", graphFail: "그래프 로드 실패: ",
+    noteFail: "노트 로드 실패: ", connected: "🔗 연결: ", emptyNote: "(빈 노트)",
+  },
+  en: {
+    title: "🧠 Second Brain",
+    loading: "Loading…",
+    stat: (n, e, dup) => `${n} nodes · ${e} edges${dup ? ` · ⚠ ${dup} cleanup pairs` : ''}`,
+    legendNode: "Nodes — note type", legendLink: "Edges — links", legendRel: "Edges — relations",
+    types: { '의미': 'Concept', '통찰': 'Insight', '절차': 'Procedure', unclassified: 'Unclassified' },
+    typeDesc: { '의미': 'definition', '통찰': 'judgment', '절차': 'how-to' },
+    links: { wiki: 'Wiki-link', sim: 'Similar', dup: 'Cleanup' },
+    linkDesc: { wiki: 'direct', sim: 'related', dup: 'duplicate' },
+    rels: { '지지': 'Supports', '반박': 'Refutes', '확장': 'Expands' },
+    relDesc: { '지지': 'backs up', '반박': 'conflicts', '확장': 'elaborates' },
+    askPlaceholder: "Ask your brain…(Enter)", askBtn: "Ask", thinking: "Thinking…",
+    evidence: "Sources: ", askFail: "Ask failed: ", graphFail: "Graph load failed: ",
+    noteFail: "Note load failed: ", connected: "🔗 Linked: ", emptyNote: "(empty note)",
+  },
+};
+function detectLang() {
+  const saved = localStorage.getItem('sb_lang');
+  if (saved === 'ko' || saved === 'en') return saved;
+  return (navigator.language || '').toLowerCase().startsWith('ko') ? 'ko' : 'en';
+}
+let LANG = detectLang();
+const t = () => I18N[LANG];
+
+// 그래프 인스턴스/데이터 + 통계(언어 전환 시 다시 그리기 위해 보관)
+let GRAPH = null, NODES = [], LINKS = [];
+let STAT = { n: 0, e: 0, dup: 0 }, LOADED = false;
+
+function renderStat() {
+  document.getElementById('stat').textContent =
+    LOADED ? t().stat(STAT.n, STAT.e, STAT.dup) : t().loading;
+}
+
+function legendRow(items) {
+  const div = document.createElement('div');
+  div.className = 'legend';
+  for (const it of items) {
+    const span = document.createElement('span');
+    const marker = document.createElement('i');
+    marker.className = it.line ? 'line' : 'dot';
+    if (it.line) marker.style.borderColor = it.color; else marker.style.background = it.color;
+    span.appendChild(marker);
+    span.appendChild(document.createTextNode(it.label));
+    if (it.desc) {
+      const em = document.createElement('em');
+      em.textContent = it.desc;
+      span.appendChild(em);
+    }
+    div.appendChild(span);
+  }
+  return div;
+}
+
+function renderLegend() {
+  const L = t();
+  const area = document.getElementById('legend-area');
+  area.replaceChildren();
+  const title = txt => { const d = document.createElement('div'); d.className = 'legend-title'; d.textContent = txt; return d; };
+  area.append(
+    title(L.legendNode),
+    legendRow([
+      { color: '#89b4fa', label: L.types['의미'], desc: L.typeDesc['의미'] },
+      { color: '#f9e2af', label: L.types['통찰'], desc: L.typeDesc['통찰'] },
+      { color: '#a6e3a1', label: L.types['절차'], desc: L.typeDesc['절차'] },
+      { color: '#6b7280', label: L.types.unclassified },
+    ]),
+    title(L.legendLink),
+    legendRow([
+      { line: true, color: '#4ade80', label: L.links.wiki, desc: L.linkDesc.wiki },
+      { line: true, color: '#64748b', label: L.links.sim, desc: L.linkDesc.sim },
+      { line: true, color: '#ef4444', label: L.links.dup, desc: L.linkDesc.dup },
+    ]),
+    title(L.legendRel),
+    legendRow([
+      { line: true, color: '#2dd4bf', label: L.rels['지지'], desc: L.relDesc['지지'] },
+      { line: true, color: '#fb923c', label: L.rels['반박'], desc: L.relDesc['반박'] },
+      { line: true, color: '#c084fc', label: L.rels['확장'], desc: L.relDesc['확장'] },
+    ]),
+  );
+}
+
+function applyLang() {
+  const L = t();
+  document.documentElement.lang = LANG;
+  document.getElementById('hud-title').textContent = L.title;
+  document.getElementById('lang-toggle').textContent = (LANG === 'ko') ? 'EN' : '한';
+  askInput.placeholder = L.askPlaceholder;
+  askBtn.textContent = L.askBtn;
+  renderLegend();
+  renderStat();
+  if (GRAPH) GRAPH.nodeRelSize(GRAPH.nodeRelSize());  // 캔버스 라벨(관계/배지) 리렌더 트리거
+}
 
 Promise.all([
   fetch('/graph').then(r => r.json()),
@@ -113,9 +213,9 @@ Promise.all([
       .map(e => ({ ...e }))
       .concat(dupLinks);
 
-    const dupTxt = dupLinks.length ? ` · ⚠ 정리 후보 ${dupLinks.length}쌍` : '';
-    document.getElementById('stat').textContent =
-      `${data.nodes.length} 노드 · ${links.length} 엣지${dupTxt}`;
+    STAT = { n: data.nodes.length, e: links.length, dup: dupLinks.length };
+    LOADED = true;
+    renderStat();
 
     // 연결 수(degree) → 노드 크기에 반영(중요한 노드일수록 크게). 라벨 표시 기준에도 사용.
     const deg = {};
@@ -125,14 +225,13 @@ Promise.all([
 
     // 노드 유형별 색 (의미/통찰/절차, 미분류는 회색)
     const TYPE_COLORS = { '의미': '#89b4fa', '통찰': '#f9e2af', '절차': '#a6e3a1' };
-    const colorFor = t => TYPE_COLORS[t] || '#6b7280';
+    const colorFor = ty => TYPE_COLORS[ty] || '#6b7280';
     // 의미 관계 엣지 색 (지지/반박/확장 — 무관은 엣지가 없음)
     const REL_COLORS = { '지지': '#2dd4bf', '반박': '#fb923c', '확장': '#c084fc' };
     const NODE_REL = 4;
-    const radiusOf = n => NODE_REL * Math.sqrt(1 + n.__deg * 0.6);  // nodeVal과 맞춘 추정 반지름
-    const labelAlways = data.nodes.length <= 25;  // 작은 뇌는 라벨 항상, 큰 뇌는 줌/연결수 적응
+    const radiusOf = n => NODE_REL * Math.sqrt(1 + n.__deg * 0.6);
+    const labelAlways = data.nodes.length <= 25;
 
-    // 호버 하이라이트: 올린 노드 + 직접 이웃만 선명, 나머지는 흐리게.
     let hoverId = null;
     let neighbors = new Set();
 
@@ -143,14 +242,14 @@ Promise.all([
       .nodeVal(n => 1 + n.__deg * 0.6)
       .nodeColor(n => {
         const c = colorFor(n.type);
-        return (hoverId && !neighbors.has(n.id)) ? c + '26' : c;   // 비이웃은 알파 낮춰 흐리게
+        return (hoverId && !neighbors.has(n.id)) ? c + '26' : c;
       })
       .linkColor(l => {
         const c = l.type === 'link' ? '#4ade80' : l.type === 'dup' ? '#ef4444'
           : l.type === 'relation' ? (REL_COLORS[l.label] || '#94a3b8') : '#475569';
         if (hoverId) {
-          const s = idOf(l.source), t = idOf(l.target);
-          if (!(neighbors.has(s) && neighbors.has(t))) return c + '14';
+          const s = idOf(l.source), tt = idOf(l.target);
+          if (!(neighbors.has(s) && neighbors.has(tt))) return c + '14';
         }
         return c;
       })
@@ -160,39 +259,35 @@ Promise.all([
       .linkDirectionalParticleWidth(2)
       .linkCanvasObjectMode(l => l.type === 'relation' ? 'after' : undefined)
       .linkCanvasObject((l, ctx, scale) => {
-        // 관계 엣지 중앙에 라벨(지지/반박/확장) 텍스트. 호버 시 비관련은 흐리게.
-        const s = l.source, t = l.target;
-        if (l.type !== 'relation' || typeof s !== 'object' || typeof t !== 'object') return;
-        const dim = hoverId && !(neighbors.has(s.id) && neighbors.has(t.id));
+        // 관계 엣지 중앙에 라벨(지지/반박/확장 → 선택 언어). 호버 시 비관련은 흐리게.
+        const s = l.source, tt = l.target;
+        if (l.type !== 'relation' || typeof s !== 'object' || typeof tt !== 'object') return;
+        const dim = hoverId && !(neighbors.has(s.id) && neighbors.has(tt.id));
         const fs = 10 / scale;
         ctx.font = `${fs}px system-ui, "Malgun Gothic", sans-serif`;
         ctx.fillStyle = (REL_COLORS[l.label] || '#94a3b8') + (dim ? '20' : '');
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(l.label, (s.x + t.x) / 2, (s.y + t.y) / 2);
+        ctx.fillText(t().rels[l.label] || l.label, (s.x + tt.x) / 2, (s.y + tt.y) / 2);
       })
       .nodeCanvasObjectMode(() => 'after')
       .nodeCanvasObject((n, ctx, scale) => {
         const isNeighbor = hoverId && neighbors.has(n.id);
         const dimmed = hoverId && !neighbors.has(n.id);
-        // 줌 아웃 + 연결 적은 노드는 라벨 숨겨 뭉침 방지(작은 뇌·호버·줌인 시엔 표시).
         if (!(labelAlways || isNeighbor || scale > 1.4 || n.__deg >= 3)) return;
-        // 호버한 바로 그 노드만 제목 전체, 나머지는 말줄임.
         const label = (hoverId === n.id) ? (n.label || n.id) : truncate(n.label || n.id, 16);
         const fs = 12 / scale;
         ctx.font = `${fs}px system-ui, "Malgun Gothic", sans-serif`;
         const w = ctx.measureText(label).width;
         const padX = 4 / scale, padY = 2.5 / scale;
         const x = n.x;
-        const y = n.y + radiusOf(n) + 3 / scale;   // 노드 원 바로 아래
-        // 반투명 배경 pill — 선/다른 노드와 겹쳐도 글자가 읽히게.
+        const y = n.y + radiusOf(n) + 3 / scale;
         ctx.fillStyle = dimmed ? 'rgba(17,21,31,0.35)' : 'rgba(17,21,31,0.82)';
         const bw = w + padX * 2, bh = fs + padY * 2, bx = x - bw / 2, by = y;
         ctx.beginPath();
         if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 3 / scale);
         else ctx.rect(bx, by, bw, bh);
         ctx.fill();
-        // 텍스트
         ctx.fillStyle = dimmed ? '#cdd6f455' : (isNeighbor ? '#ffffff' : '#cdd6f4');
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
@@ -204,9 +299,9 @@ Promise.all([
         if (node) {
           neighbors.add(node.id);
           links.forEach(l => {
-            const s = idOf(l.source), t = idOf(l.target);
-            if (s === node.id) neighbors.add(t);
-            if (t === node.id) neighbors.add(s);
+            const s = idOf(l.source), tt = idOf(l.target);
+            if (s === node.id) neighbors.add(tt);
+            if (tt === node.id) neighbors.add(s);
           });
         }
         document.getElementById('graph').style.cursor = node ? 'pointer' : 'default';
@@ -214,17 +309,15 @@ Promise.all([
       .onNodeClick(n => { g.centerAt(n.x, n.y, 600); g.zoom(4, 600); showDetail(n); });
 
     // 시뮬레이션이 처음 안정되면 전체 그래프가 화면에 들어오게 1회 맞춤(좌우 잘림 방지).
-    // 이후 사용자가 줌/패닝하면 그대로 둔다(매번 되돌리지 않게 fitted 플래그로 1회만).
     let fitted = false;
     g.onEngineStop(() => { if (!fitted) { fitted = true; g.zoomToFit(500, 90); } });
 
-    // 노드 상세 패널·점프가 참조하도록 그래프 인스턴스와 노드/엣지를 전역에 노출
     GRAPH = g;
     NODES = data.nodes;
     LINKS = links;
   })
   .catch(err => {
-    document.getElementById('stat').textContent = '그래프 로드 실패: ' + err;
+    document.getElementById('stat').textContent = t().graphFail + err;
   });
 
 // ── 질문(RAG /ask): 노트를 검색해 로컬 LLM이 근거 기반으로 답한다 ──
@@ -250,7 +343,7 @@ function renderAnswer(answer, sources) {
   if (sources && sources.length) {
     const srcs = document.createElement('div');
     srcs.className = 'srcs';
-    srcs.append('근거: ');
+    srcs.append(t().evidence);
     for (const s of sources) {
       const chip = document.createElement('span');
       chip.className = 'src';
@@ -267,7 +360,7 @@ async function doAsk() {
   if (!q) return;
   askBtn.disabled = true;
   askAnswer.style.display = 'block';
-  renderMuted('생각 중…');
+  renderMuted(t().thinking);
   try {
     const r = await fetch('/ask', {
       method: 'POST',
@@ -277,7 +370,7 @@ async function doAsk() {
     const data = await r.json();
     renderAnswer(data.answer || '', data.sources || []);
   } catch (e) {
-    renderMuted('질문 실패: ' + e);
+    renderMuted(t().askFail + e);
   } finally {
     askBtn.disabled = false;
   }
@@ -286,8 +379,6 @@ askBtn.addEventListener('click', doAsk);
 askInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAsk(); });
 
 // ── 노드 상세 패널(T1): 클릭한 노트의 본문·메타·연결을 측면에 띄운다 ──
-// GRAPH/NODES/LINKS는 그래프가 그려진 뒤 then 안에서 채워진다(클릭은 그 후라 안전).
-let GRAPH = null, NODES = [], LINKS = [];
 const detailEl = document.getElementById('detail');
 const TYPE_BADGE = { '의미': '#89b4fa', '통찰': '#f9e2af', '절차': '#a6e3a1' };
 
@@ -303,14 +394,14 @@ async function showDetail(node) {
   detailEl.replaceChildren();
   const muted = document.createElement('div');
   muted.style.color = '#9399b2';
-  muted.textContent = '불러오는 중…';
+  muted.textContent = t().loading;
   detailEl.appendChild(muted);
   try {
     const r = await fetch('/note?path=' + encodeURIComponent(node.id));
-    if (!r.ok) throw new Error('노트를 찾을 수 없음');
+    if (!r.ok) throw new Error('not found');
     renderDetail(await r.json(), node);
   } catch (e) {
-    muted.textContent = '노트 로드 실패: ' + e;
+    muted.textContent = t().noteFail + e;
   }
 }
 
@@ -332,7 +423,7 @@ function renderDetail(d, node) {
     const badge = document.createElement('span');
     badge.className = 'dt-badge';
     badge.style.background = TYPE_BADGE[d.type] || '#6b7280';
-    badge.textContent = d.type;
+    badge.textContent = t().types[d.type] || d.type;   // 유형 배지도 선택 언어로 표시
     head.appendChild(badge);
   }
   detailEl.appendChild(head);
@@ -348,7 +439,7 @@ function renderDetail(d, node) {
 
   const body = document.createElement('div');
   body.className = 'dt-body';
-  body.textContent = d.body || '(빈 노트)';
+  body.textContent = d.body || t().emptyNote;
   detailEl.appendChild(body);
 
   // 위키링크 엣지로 연결된 노트 → 클릭하면 그 노드로 점프
@@ -358,7 +449,7 @@ function renderDetail(d, node) {
   if (connected.length) {
     const wrap = document.createElement('div');
     wrap.className = 'dt-links';
-    wrap.append('🔗 연결: ');
+    wrap.append(t().connected);
     for (const id of connected) {
       const n = NODES.find(x => x.id === id);
       const chip = document.createElement('span');
@@ -370,6 +461,14 @@ function renderDetail(d, node) {
     detailEl.appendChild(wrap);
   }
 }
+
+// ── 언어 토글 + 초기 적용 (모든 요소 정의 후) ──
+document.getElementById('lang-toggle').addEventListener('click', () => {
+  LANG = (LANG === 'ko') ? 'en' : 'ko';
+  localStorage.setItem('sb_lang', LANG);
+  applyLang();
+});
+applyLang();
 </script>
 </body>
 </html>

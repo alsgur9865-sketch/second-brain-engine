@@ -58,3 +58,34 @@ def test_max_pairs로_개수를_제한한다(tmp_path):
         brain.add_note(f"노트{i}", "비슷한 길이의 내용입니다", [], "inbox")
     cands = find_duplicate_candidates(brain, threshold=0.0, max_pairs=2)
     assert len(cands) == 2
+
+
+def _read(brain, rel):
+    with open(os.path.join(brain.notes_path, rel), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_relink_병합후_옛링크가_새제목으로_치환된다(tmp_path):
+    brain = _make_brain(tmp_path)
+    # A가 '포트 바꾸기'를 일반 링크와 별칭 링크 둘 다로 가리킨다
+    body = "[[포트 바꾸기]] 와 [[포트 바꾸기|포트]]"
+    a = brain.add_note("노트 A", body, [], "inbox")
+    b = brain.add_note("포트 바꾸기", "포트 변경 내용", [], "inbox")
+
+    old_names = brain.collect_link_names([b])   # 삭제 '전'에 옛 이름 수집
+    brain.delete_note(b)
+    new = brain.add_note("엔진 포트 변경 방법", "통합 내용", [], "inbox")
+    changed = brain.relink(old_names, "엔진 포트 변경 방법", skip={new})
+
+    assert a in changed and new not in changed   # A만 바뀌고 새 노트는 건드리지 않음
+    text = _read(brain, a)
+    assert "[[엔진 포트 변경 방법]]" in text       # 일반·별칭 링크 모두 단순 치환
+    assert "포트 바꾸기" not in text
+
+
+def test_relink_관련없는_링크는_그대로다(tmp_path):
+    brain = _make_brain(tmp_path)
+    a = brain.add_note("노트 A", "이건 [[다른 노트]] 링크", [], "inbox")
+    changed = brain.relink({"포트 바꾸기"}, "엔진 포트 변경 방법", skip=set())
+    assert changed == []
+    assert "[[다른 노트]]" in _read(brain, a)

@@ -167,7 +167,7 @@ def cleanup_candidates(threshold: float = 0.85, max_pairs: int = 20) -> dict:
 def cleanup_merge(req: MergeRequest) -> dict:
     """중복 노트(sources, 2개 이상)를 하나로 병합. content 있으면 사용, 없으면 로컬 LLM 요약.
 
-    새 노트를 저장하고 원본을 삭제한다. 위키링크 보정은 하지 않는다(1차 한계).
+    새 노트를 저장하고 원본을 삭제한 뒤, 원본을 가리키던 [[위키링크]]를 새 제목으로 보정한다.
     """
     if len(req.sources) < 2:
         raise HTTPException(status_code=400, detail="sources는 2개 이상이어야 한다")
@@ -183,6 +183,7 @@ def cleanup_merge(req: MergeRequest) -> dict:
         raise HTTPException(status_code=400, detail="title이 필요하다(content를 비우면 자동 생성)")
 
     new_path = brain.add_note(title, content, req.tags, req.folder)
+    old_names = brain.collect_link_names(req.sources)   # 삭제 전에 옛 이름 수집
     removed: list[str] = []
     for src in req.sources:
         safe = _safe_rel(src)
@@ -190,4 +191,5 @@ def cleanup_merge(req: MergeRequest) -> dict:
             continue
         brain.delete_note(safe)
         removed.append(safe)
-    return {"merged": new_path, "removed": removed}
+    relinked = brain.relink(old_names, title, skip={new_path})
+    return {"merged": new_path, "removed": removed, "relinked": relinked}

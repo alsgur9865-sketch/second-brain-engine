@@ -254,6 +254,54 @@ class BrainIndex:
         self.collection.delete(where={"path": rel})
         return {"deleted": rel, "file_existed": file_existed}
 
+    # ---------- 병합 후 위키링크 보정 ----------
+    def collect_link_names(self, paths: list[str]) -> set[str]:
+        """노트들을 가리킬 수 있는 이름(파일명 stem + frontmatter title)을 정규화해 모은다.
+        병합으로 '삭제하기 전에' 호출해야 title을 읽을 수 있다."""
+        names: set[str] = set()
+        for rel in paths:
+            safe = _safe_rel(rel)
+            if not safe:
+                continue
+            stem = safe.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            names.add(_norm_name(stem))
+            full = os.path.join(self.notes_path, safe)
+            if os.path.isfile(full):
+                with open(full, encoding="utf-8") as f:
+                    fm = parse_frontmatter(f.read())
+                if fm.get("title"):
+                    names.add(_norm_name(fm["title"]))
+        return names
+
+    def relink(
+        self, old_names: set[str], new_title: str, skip: set[str] | None = None
+    ) -> list[str]:
+        """본문의 `[[old_name]]` 링크를 `[[new_title]]`로 단순 치환한다(별칭은 버림).
+        old_names는 _norm_name으로 정규화된 이름 집합. skip 경로(새 병합 노트 등)는 건너뛴다.
+        내용이 바뀐 노트만 파일에 쓰고 재인덱싱하며, 그 상대경로 목록을 반환한다."""
+        skip = skip or set()
+        if not old_names:
+            return []
+
+        def _repl(m):
+            name = m.group(1).split("|")[0]
+            return f"[[{new_title}]]" if _norm_name(name) in old_names else m.group(0)
+
+        changed: list[str] = []
+        for rel in self._scan_disk():
+            if rel in skip:
+                continue
+            full = os.path.join(self.notes_path, rel)
+            with open(full, encoding="utf-8") as f:
+                text = f.read()
+            new_text = _LINK.sub(_repl, text)
+            if new_text != text:
+                with open(full, "w", encoding="utf-8") as f:
+                    f.write(new_text)
+                self._index_file(rel, int(os.path.getmtime(full)))
+                changed.append(rel)
+        return changed
+
     # ---------- 그래프(위키링크) ----------
     def _name_index(self) -> dict[str, str]:
         """노트를 가리킬 수 있는 이름(파일명 stem · frontmatter title) → 상대경로."""

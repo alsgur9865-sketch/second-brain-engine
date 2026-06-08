@@ -3,12 +3,15 @@
 # 실행: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .config import Settings
 from .embeddings import get_embedder
+from .graph import build_graph
 from .index import BrainIndex
 
 settings = Settings()
@@ -24,6 +27,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="second-brain-engine", version="0.1.0", lifespan=lifespan)
+
+_STATIC = Path(__file__).resolve().parent / "static"
 
 
 def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
@@ -69,6 +74,23 @@ def health() -> dict:
         "notes_path": settings.notes_path,
         "documents": brain.collection.count(),
     }
+
+
+@app.get("/")
+def index_page() -> FileResponse:
+    """사람이 보는 그래프 뷰(force-graph 단일 페이지)."""
+    return FileResponse(_STATIC / "graph.html")
+
+
+@app.get("/graph")
+def graph() -> dict:
+    """노트 그래프(노드 + [[위키링크]]·의미유사 엣지). 그래프 뷰의 데이터원.
+
+    읽기 전용 시각화라 /health처럼 인증을 두지 않는다(로컬 도구).
+    """
+    if settings.auto_sync_on_search:
+        brain.sync()
+    return build_graph(brain)
 
 
 @app.post("/search", dependencies=[Depends(require_api_key)])

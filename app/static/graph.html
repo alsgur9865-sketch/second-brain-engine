@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!-- File: app/static/graph.html -->
+<!-- 사람이 보는 그래프 뷰. /graph(JSON)를 받아 force-graph로 노드/엣지를 그린다. -->
+<!-- 빌드툴 없음: force-graph UMD를 CDN으로 불러오는 단일 페이지. -->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Second Brain — 그래프</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0e14; color: #cdd6f4;
+    font-family: system-ui, "Segoe UI", "Malgun Gothic", sans-serif; }
+  #graph { width: 100vw; height: 100vh; }
+  #hud { position: fixed; top: 12px; left: 14px; z-index: 10; font-size: 13px; line-height: 1.7; }
+  #hud b { font-size: 16px; }
+  #stat { color: #9399b2; }
+  .legend span { margin-right: 12px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b>🧠 Second Brain</b>
+  <div id="stat">불러오는 중…</div>
+  <div class="legend">
+    <span><i class="dot" style="background:#4ade80"></i>위키링크</span>
+    <span><i class="dot" style="background:#64748b"></i>의미 유사</span>
+  </div>
+</div>
+<div id="graph"></div>
+<script src="https://unpkg.com/force-graph"></script>
+<script>
+fetch('/graph')
+  .then(r => r.json())
+  .then(data => {
+    const links = data.edges.map(e => ({ ...e }));
+    document.getElementById('stat').textContent =
+      `${data.nodes.length} 노드 · ${links.length} 엣지`;
+
+    // 폴더별 노드 색
+    const palette = {};
+    const colors = ['#f38ba8','#fab387','#f9e2af','#a6e3a1','#89dceb','#cba6f7','#94e2d5','#eba0ac'];
+    let ci = 0;
+    const colorFor = f => (palette[f] ??= colors[ci++ % colors.length]);
+
+    const g = ForceGraph()(document.getElementById('graph'))
+      .graphData({ nodes: data.nodes, links })
+      .backgroundColor('#0b0e14')
+      .nodeRelSize(5)
+      .nodeColor(n => colorFor(n.folder))
+      .linkColor(l => l.type === 'link' ? '#4ade80' : '#475569')
+      .linkWidth(l => l.type === 'similar' ? (l.weight || 0.5) * 2 : 1.8)
+      .linkDirectionalParticles(l => l.type === 'link' ? 2 : 0)
+      .linkDirectionalParticleWidth(2)
+      .nodeCanvasObjectMode(() => 'after')
+      .nodeCanvasObject((n, ctx, scale) => {
+        const label = n.label || n.id;
+        const fs = 12 / scale;
+        ctx.font = `${fs}px system-ui, "Malgun Gothic", sans-serif`;
+        ctx.fillStyle = '#cdd6f4';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(label, n.x, n.y + 6 / scale);
+      })
+      .onNodeClick(n => { g.centerAt(n.x, n.y, 600); g.zoom(4, 600); });
+  })
+  .catch(err => {
+    document.getElementById('stat').textContent = '그래프 로드 실패: ' + err;
+  });
+</script>
+</body>
+</html>

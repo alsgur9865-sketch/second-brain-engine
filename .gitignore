@@ -12,3 +12,6 @@ _smoke.py
 _diag.py
 _e2e.py
 _e2e.ps1
+
+# Claude Code MCP 등록 (PC 절대경로가 박혀 있어 공개 제외 — .mcp.json.example로 공유)
+.mcp.json

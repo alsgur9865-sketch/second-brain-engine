@@ -1,4 +1,4 @@
-<!-- progress-sync: 646eff12aafb61421974b70147e3a224d7e37ed7 -->
+<!-- progress-sync: 537f6a01fe20ee09205e880834e6a889b8c64d90 -->
 # Progress — 세컨드 브레인 엔진 (범용)
 
 > 최종 업데이트: 2026-06-08
@@ -7,7 +7,7 @@
 
 **에이전트가 쓰고(MCP) 사람이 그래프로 보는** 범용 세컨드 브레인 엔진.
 엔진은 HTTP API만 노출하는 **범용 코어** — 폴더만 바꾸면 새 뇌(노트폴더+인덱스 한 쌍).
-**최근(06-08): 재시작 후 검증 통과 → 위키링크 보정(병합 시 끊긴 링크 자동 연결) → 노드 유형 분류(의미/통찰/절차 LLM)까지 구현·E2E 실검증 완료.**
+**최근(06-08): 위키링크 보정 → 노드 유형 분류 → RAG /ask(꺼내 쓰기) → 노트 상세 패널 → 의미 관계 엣지(지지/반박/확장)까지 — 안 B 완성, 기능 축 닫힘. T2는 로컬(push hook 막힘).**
 
 ## 정체성: 범용 엔진 + 교체 가능한 클라이언트
 
@@ -29,6 +29,7 @@
 
 ## 진행 기록
 
+- **2026-06-08 (8) 의미 관계 엣지 (T2, 안 B 완성)**: 의미유사 노트 쌍을 로컬 gemma가 지지/반박/확장/무관으로 분류해 무관 외를 그래프에 라벨 색 엣지로 그린다(생각의 흐름 가시화). 결과는 사전순 앞 노트 frontmatter에 캐싱(무관 포함) — 분류된 쌍은 의미유사 회색 선에서 라벨 선으로 **승격**돼 재분류에서 빠진다(별도 skip 불필요, 자연 달성). `llm.py classify_relation` + `index.py classify_relations`(build_graph 의미유사쌍 재사용)·`_set_frontmatter_field` + `graph.py` relation 엣지(무관 제외·분류쌍 similar 억제) + `POST /classify-relations` + `graph.html` 색·라벨·범례. ruff/pytest **36 passed**(관계 2) + E2E(6쌍→확장4/무관2, relation 4, 의미유사 6→0, 재호출 0 캐싱) + 브라우저. (커밋 537f6a0, 로컬·push 보류)
 - **2026-06-08 (7) 노드 클릭 → 노트 상세 패널 (T1, 보기 완성)**: 그래프 노드를 클릭하면 우측 패널에 제목·유형 배지·태그·날짜·본문 전체 + 위키링크 연결 노트를 띄운다(전엔 줌만 됐다 = 보기 반쪽). 연결 칩·ask 근거 칩 클릭 시 그 노드로 점프 → 검색·질문·그래프가 하나로. `main.py GET /note?path=`(본문+메타, `_safe_rel` 경로탈출 차단) + `graph.html` 우측 패널(textContent/DOM XSS 차단). ruff/pytest 34 passed + E2E(/note·경로탈출 400·없는노트 404·/ask 회귀) + 브라우저 실확인. (커밋 646eff1)
 - **2026-06-08 (6) RAG /ask — 꺼내 쓰기 (안 B 조각)**: 질문을 임베딩 검색(top-k)해 로컬 gemma가 **그 노트만 근거로** 답하는 1-shot RAG. 근거가 없으면 '기억에 없습니다'로 답하는 **엄격 모드**(환각 방지). Claude는 recall로 충분하므로 ask는 **사람용**(그래프 뷰 질문 바)으로 포지셔닝. `llm.py answer_question`(notes 비면 LLM 호출 없이 폴백) + `main.py POST /ask`(search→answer_question, sources 반환) + `graph.html` 질문 바·답변 패널(textContent/DOM으로 XSS 차단). ruff / pytest **34 passed**(ask 2) + 실엔진 E2E(벡터DB 질문→'Chroma' 정답+출처, 점심·bge-m3 질문→'기억에 없습니다'). (커밋 2939e86)
 - **2026-06-08 (5) 노드 유형 분류 (안 B 첫 조각)**: frontmatter에 type 없는 노트만 로컬 gemma로 의미/통찰/절차로 분류해 frontmatter에 써넣고(이미 있으면 skip=캐싱) 그래프 노드를 유형별 색으로 칠한다 — `llm.py classify_note`+`index.py classify_unclassified`+`POST /classify`+`graph.py/html`(folder색→type색·범례). **프롬프트 함정**: 첫 시도엔 전체 text+약한 프롬프트로 gemma가 5개 다 '절차'로 쏠림 → 본문만(`_strip_frontmatter`)+유형 정의 또렷한 프롬프트로 통찰/절차/의미 정확 구분(qwen도 동일 → 모델 아닌 프롬프트 문제). ruff / pytest **32 passed**(classify 3) + 실엔진 E2E(통찰3/절차2, 재호출 skip 5). (커밋 ae9517b, 로컬)
@@ -95,9 +96,9 @@ notes 폴더(.md)             Chroma 벡터DB         로컬 LLM(ollama gemma)
 
 ## 남은 작업 (다음 세션)
 
-1. **push 보류분**: 로컬 커밋 4개(위키링크·노드유형·progress 동기화 2). 검증 끝났으니 올리면 됨.
+1. **push 막힘(중요)**: T2(537f6a0) 등 로컬 커밋이 origin 미반영. push hook이 `.env.example`·`CLAUDE.md`(이미 공개된 의도적 파일)를 오탐 차단 → `CLAUDE_ALLOW_INTERNAL_DOCS=1`로 통과 또는 hook 규칙 수정 필요(안 풀면 모든 push가 막힌다).
 2. **자동정리 — (선택) 무인 자동 실행**(임계값/주기). *위키링크 보정은 완료(b0316fb).*
-3. **안 B 나머지**: 의미 관계 엣지(지지/반박/확장, LLM). *노드 유형 분류(ae9517b)·RAG `/ask`(2939e86)는 완료.*
+3. **안 B 완성** ✓: 노드 유형(ae9517b)·RAG `/ask`(2939e86)·의미 관계 엣지(537f6a0) 전부 구현. **기능 축 닫힘** — 다음은 실사용 검증/출시 준비.
 4. 헤르메스 실연동 — 또 다른 클라이언트로 여전히 가능.
 
 ## 로컬 환경 메모

@@ -10,12 +10,20 @@
   html, body { margin: 0; height: 100%; background: #0b0e14; color: #cdd6f4;
     font-family: system-ui, "Segoe UI", "Malgun Gothic", sans-serif; }
   #graph { width: 100vw; height: 100vh; }
-  #hud { position: fixed; top: 12px; left: 14px; z-index: 10; font-size: 13px; line-height: 1.7; }
+  #hud { position: fixed; top: 12px; left: 14px; z-index: 10; font-size: 13px; line-height: 1.7;
+    background: rgba(11,14,20,0.55); padding: 10px 12px; border-radius: 10px;
+    border: 1px solid #1b2230; backdrop-filter: blur(3px); }
   #hud b { font-size: 16px; }
-  #stat { color: #9399b2; }
-  .legend span { margin-right: 12px; }
+  #stat { color: #9399b2; margin-bottom: 4px; }
+  .legend { margin-top: 5px; }
+  .legend-title { color: #6b7280; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; margin: 7px 0 2px; }
+  .legend span { margin-right: 12px; white-space: nowrap; }
+  .legend em { color: #9399b2; font-style: normal; font-size: 11px; margin-left: 3px; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
     vertical-align: middle; margin-right: 4px; }
+  .line { display: inline-block; width: 14px; height: 0; vertical-align: middle; margin-right: 4px;
+    border-top-width: 3px; border-top-style: solid; }
   #ask { position: fixed; left: 14px; bottom: 14px; z-index: 10; width: 360px; max-width: 46vw; }
   #ask-answer { display: none; background: #11151f; border: 1px solid #1f2733;
     border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px;
@@ -54,21 +62,24 @@
 <div id="hud">
   <b>🧠 Second Brain</b>
   <div id="stat">불러오는 중…</div>
+  <div class="legend-title">노드 — 노트 유형</div>
   <div class="legend">
-    <span><i class="dot" style="background:#89b4fa"></i>의미</span>
-    <span><i class="dot" style="background:#f9e2af"></i>통찰</span>
-    <span><i class="dot" style="background:#a6e3a1"></i>절차</span>
+    <span><i class="dot" style="background:#89b4fa"></i>의미<em>개념·정의</em></span>
+    <span><i class="dot" style="background:#f9e2af"></i>통찰<em>판단·결정</em></span>
+    <span><i class="dot" style="background:#a6e3a1"></i>절차<em>방법·설정</em></span>
     <span><i class="dot" style="background:#6b7280"></i>미분류</span>
   </div>
+  <div class="legend-title">선 — 연결</div>
   <div class="legend">
-    <span><i class="dot" style="background:#4ade80"></i>위키링크</span>
-    <span><i class="dot" style="background:#64748b"></i>의미 유사</span>
-    <span><i class="dot" style="background:#ef4444"></i>정리 후보(중복)</span>
+    <span><i class="line" style="border-color:#4ade80"></i>위키링크<em>직접 연결</em></span>
+    <span><i class="line" style="border-color:#64748b"></i>의미 유사<em>비슷한 내용</em></span>
+    <span><i class="line" style="border-color:#ef4444"></i>정리 후보<em>중복 의심</em></span>
   </div>
+  <div class="legend-title">선 — 의미 관계</div>
   <div class="legend">
-    <span><i class="dot" style="background:#2dd4bf"></i>지지</span>
-    <span><i class="dot" style="background:#fb923c"></i>반박</span>
-    <span><i class="dot" style="background:#c084fc"></i>확장</span>
+    <span><i class="line" style="border-color:#2dd4bf"></i>지지<em>뒷받침</em></span>
+    <span><i class="line" style="border-color:#fb923c"></i>반박<em>충돌</em></span>
+    <span><i class="line" style="border-color:#c084fc"></i>확장<em>구체화</em></span>
   </div>
 </div>
 <div id="graph"></div>
@@ -82,6 +93,9 @@
 <div id="detail"></div>
 <script src="https://unpkg.com/force-graph"></script>
 <script>
+const idOf = x => (x && typeof x === 'object') ? x.id : x;  // force-graph가 source/target을 객체로 바꿈
+const truncate = (s, n) => { const a = [...String(s)]; return a.length > n ? a.slice(0, n).join('') + '…' : s; };
+
 Promise.all([
   fetch('/graph').then(r => r.json()),
   fetch('/cleanup/candidates?threshold=0.85').then(r => r.json()).catch(() => ({ candidates: [] })),
@@ -103,47 +117,106 @@ Promise.all([
     document.getElementById('stat').textContent =
       `${data.nodes.length} 노드 · ${links.length} 엣지${dupTxt}`;
 
+    // 연결 수(degree) → 노드 크기에 반영(중요한 노드일수록 크게). 라벨 표시 기준에도 사용.
+    const deg = {};
+    data.nodes.forEach(n => { deg[n.id] = 0; });
+    links.forEach(l => { deg[l.source] = (deg[l.source] || 0) + 1; deg[l.target] = (deg[l.target] || 0) + 1; });
+    data.nodes.forEach(n => { n.__deg = deg[n.id] || 0; });
+
     // 노드 유형별 색 (의미/통찰/절차, 미분류는 회색)
     const TYPE_COLORS = { '의미': '#89b4fa', '통찰': '#f9e2af', '절차': '#a6e3a1' };
     const colorFor = t => TYPE_COLORS[t] || '#6b7280';
-
     // 의미 관계 엣지 색 (지지/반박/확장 — 무관은 엣지가 없음)
     const REL_COLORS = { '지지': '#2dd4bf', '반박': '#fb923c', '확장': '#c084fc' };
+    const NODE_REL = 4;
+    const radiusOf = n => NODE_REL * Math.sqrt(1 + n.__deg * 0.6);  // nodeVal과 맞춘 추정 반지름
+    const labelAlways = data.nodes.length <= 25;  // 작은 뇌는 라벨 항상, 큰 뇌는 줌/연결수 적응
+
+    // 호버 하이라이트: 올린 노드 + 직접 이웃만 선명, 나머지는 흐리게.
+    let hoverId = null;
+    let neighbors = new Set();
 
     const g = ForceGraph()(document.getElementById('graph'))
       .graphData({ nodes: data.nodes, links })
       .backgroundColor('#0b0e14')
-      .nodeRelSize(5)
-      .nodeColor(n => colorFor(n.type))
-      .linkColor(l => l.type === 'link' ? '#4ade80' : l.type === 'dup' ? '#ef4444'
-        : l.type === 'relation' ? (REL_COLORS[l.label] || '#94a3b8') : '#475569')
+      .nodeRelSize(NODE_REL)
+      .nodeVal(n => 1 + n.__deg * 0.6)
+      .nodeColor(n => {
+        const c = colorFor(n.type);
+        return (hoverId && !neighbors.has(n.id)) ? c + '26' : c;   // 비이웃은 알파 낮춰 흐리게
+      })
+      .linkColor(l => {
+        const c = l.type === 'link' ? '#4ade80' : l.type === 'dup' ? '#ef4444'
+          : l.type === 'relation' ? (REL_COLORS[l.label] || '#94a3b8') : '#475569';
+        if (hoverId) {
+          const s = idOf(l.source), t = idOf(l.target);
+          if (!(neighbors.has(s) && neighbors.has(t))) return c + '14';
+        }
+        return c;
+      })
       .linkWidth(l => l.type === 'dup' ? 4 : l.type === 'relation' ? 2.5
         : l.type === 'similar' ? (l.weight || 0.5) * 2 : 1.8)
       .linkDirectionalParticles(l => l.type === 'link' ? 2 : 0)
       .linkDirectionalParticleWidth(2)
       .linkCanvasObjectMode(l => l.type === 'relation' ? 'after' : undefined)
       .linkCanvasObject((l, ctx, scale) => {
-        // 관계 엣지 중앙에 라벨(지지/반박/확장) 텍스트
+        // 관계 엣지 중앙에 라벨(지지/반박/확장) 텍스트. 호버 시 비관련은 흐리게.
         const s = l.source, t = l.target;
         if (l.type !== 'relation' || typeof s !== 'object' || typeof t !== 'object') return;
+        const dim = hoverId && !(neighbors.has(s.id) && neighbors.has(t.id));
         const fs = 10 / scale;
         ctx.font = `${fs}px system-ui, "Malgun Gothic", sans-serif`;
-        ctx.fillStyle = REL_COLORS[l.label] || '#94a3b8';
+        ctx.fillStyle = (REL_COLORS[l.label] || '#94a3b8') + (dim ? '20' : '');
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(l.label, (s.x + t.x) / 2, (s.y + t.y) / 2);
       })
       .nodeCanvasObjectMode(() => 'after')
       .nodeCanvasObject((n, ctx, scale) => {
-        const label = n.label || n.id;
+        const isNeighbor = hoverId && neighbors.has(n.id);
+        const dimmed = hoverId && !neighbors.has(n.id);
+        // 줌 아웃 + 연결 적은 노드는 라벨 숨겨 뭉침 방지(작은 뇌·호버·줌인 시엔 표시).
+        if (!(labelAlways || isNeighbor || scale > 1.4 || n.__deg >= 3)) return;
+        // 호버한 바로 그 노드만 제목 전체, 나머지는 말줄임.
+        const label = (hoverId === n.id) ? (n.label || n.id) : truncate(n.label || n.id, 16);
         const fs = 12 / scale;
         ctx.font = `${fs}px system-ui, "Malgun Gothic", sans-serif`;
-        ctx.fillStyle = '#cdd6f4';
+        const w = ctx.measureText(label).width;
+        const padX = 4 / scale, padY = 2.5 / scale;
+        const x = n.x;
+        const y = n.y + radiusOf(n) + 3 / scale;   // 노드 원 바로 아래
+        // 반투명 배경 pill — 선/다른 노드와 겹쳐도 글자가 읽히게.
+        ctx.fillStyle = dimmed ? 'rgba(17,21,31,0.35)' : 'rgba(17,21,31,0.82)';
+        const bw = w + padX * 2, bh = fs + padY * 2, bx = x - bw / 2, by = y;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 3 / scale);
+        else ctx.rect(bx, by, bw, bh);
+        ctx.fill();
+        // 텍스트
+        ctx.fillStyle = dimmed ? '#cdd6f455' : (isNeighbor ? '#ffffff' : '#cdd6f4');
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText(label, n.x, n.y + 6 / scale);
+        ctx.fillText(label, x, y + padY);
+      })
+      .onNodeHover(node => {
+        hoverId = node ? node.id : null;
+        neighbors = new Set();
+        if (node) {
+          neighbors.add(node.id);
+          links.forEach(l => {
+            const s = idOf(l.source), t = idOf(l.target);
+            if (s === node.id) neighbors.add(t);
+            if (t === node.id) neighbors.add(s);
+          });
+        }
+        document.getElementById('graph').style.cursor = node ? 'pointer' : 'default';
       })
       .onNodeClick(n => { g.centerAt(n.x, n.y, 600); g.zoom(4, 600); showDetail(n); });
+
+    // 시뮬레이션이 처음 안정되면 전체 그래프가 화면에 들어오게 1회 맞춤(좌우 잘림 방지).
+    // 이후 사용자가 줌/패닝하면 그대로 둔다(매번 되돌리지 않게 fitted 플래그로 1회만).
+    let fitted = false;
+    g.onEngineStop(() => { if (!fitted) { fitted = true; g.zoomToFit(500, 90); } });
 
     // 노드 상세 패널·점프가 참조하도록 그래프 인스턴스와 노드/엣지를 전역에 노출
     GRAPH = g;
@@ -217,7 +290,6 @@ askInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAsk(); });
 let GRAPH = null, NODES = [], LINKS = [];
 const detailEl = document.getElementById('detail');
 const TYPE_BADGE = { '의미': '#89b4fa', '통찰': '#f9e2af', '절차': '#a6e3a1' };
-const idOf = x => (x && typeof x === 'object') ? x.id : x;  // force-graph가 source/target을 객체로 바꿈
 
 function focusNode(id) {
   const n = NODES.find(x => x.id === id);

@@ -7,7 +7,7 @@
 
 **에이전트가 쓰고(MCP) 사람이 그래프로 보는** 범용 세컨드 브레인 엔진.
 엔진은 HTTP API만 노출하는 **범용 코어** — 폴더만 바꾸면 새 뇌(노트폴더+인덱스 한 쌍).
-**이번 세션(06-08 후반): ①에이전트 자동 쌓기(능동 규칙 + Stop hook) ②자동정리 풀스택(중복 탐지 + gemma 병합)을 구현하고 dogfooding·E2E로 실검증 완료.**
+**최근(06-08): 재시작 후 검증 통과 → 위키링크 보정(병합 시 끊긴 링크 자동 연결) → 노드 유형 분류(의미/통찰/절차 LLM)까지 구현·E2E 실검증 완료.**
 
 ## 정체성: 범용 엔진 + 교체 가능한 클라이언트
 
@@ -24,8 +24,8 @@
 | second-brain-engine | 🌐 public (MIT) | https://github.com/alsgur9865-sketch/second-brain-engine |
 | my-second-brain | 🔒 private | https://github.com/alsgur9865-sketch/my-second-brain |
 
-- 이번 세션 코드 커밋 완료(자동 쌓기 / 자동정리 2커밋).
-- **엔진 기동 중**: `localhost:8000`, `agent-memory` 뇌(노트 4개). MCP recall/remember 실작동 확인.
+- 코드 커밋: 자동 쌓기·자동정리 → 위키링크 보정(b0316fb)·노드 유형 분류(ae9517b)까지. 최근 4커밋은 **로컬에만(push 보류)**.
+- **엔진 기동 중**: `127.0.0.1:8000`, `agent-memory` 뇌(노트 6개). MCP recall/remember/cleanup/classify 실작동 확인.
 
 ## 진행 기록
 
@@ -83,17 +83,19 @@ notes 폴더(.md)             Chroma 벡터DB         로컬 LLM(ollama gemma)
 - **경로 안전 함정**: `_safe_rel`이 leading `/` strip 전 절대경로 검사하도록.
 - **Bash 도구 cwd 함정**: 실제 cwd가 `/d`인데 "reset to ...second-brain-engine" 메시지는 거짓 → 상대경로가 `D:\` 루트의 엉뚱한 파일을 조용히 반환(예: `D:\.claude` 게임 템플릿 오인). **절대경로 필수**. (메모리 `shell-and-verify-commands` 참고)
 - **curl 한글 body 깨짐**: git-bash에서 `curl -d '{한글}'`은 파싱 실패 → E2E는 python httpx로.
+- **localhost vs 127.0.0.1**: Windows에서 `curl localhost:8000`은 IPv6(`::1`) 우선 → 엔진이 `127.0.0.1`만 들으면 연결 실패(`http=000`). `127.0.0.1` 명시.
+- **분류가 다 '절차'로 쏠림**: 노트 전체 text + 약한 프롬프트 → gemma가 한쪽 쏠림. 본문만(`_strip_frontmatter`) + 유형 정의 또렷한 프롬프트로 해결(qwen도 동일 → 모델 아닌 프롬프트 문제).
 
 ## 검증 상태
 
-- ruff: All passed / pytest: **27 passed**(순수함수 + 가짜임베더 BrainIndex/cleanup + 임베딩 프리셋). graph.py·llm.py·mcp_server.py·hook은 통합/E2E로 확인.
-- `/health` E2E: ollama `bge-m3` 실호출 OK. `/graph`·`recall`/`remember`·`/cleanup/*`(gemma 병합)·브라우저 렌더 실측 OK.
+- ruff: All passed / pytest: **32 passed**(순수함수 + 가짜임베더 BrainIndex/cleanup/relink/classify + 임베딩 프리셋). graph.py·llm.py·mcp_server.py·hook은 통합/E2E로 확인.
+- `/health` E2E: ollama `bge-m3` 실호출 OK. `/graph`·`recall`/`remember`·`/cleanup/*`(gemma 병합)·`/classify`(gemma 유형 분류, 통찰3/절차2)·브라우저 렌더 실측 OK.
 
 ## 남은 작업 (다음 세션)
 
-1. **Claude Code 재시작 후 검증**: ① cleanup MCP 도구(`cleanup_candidates`/`cleanup_merge`) ② Stop hook 환기 ③ "정리해줘"로 에이전트 주도 정리 플로우. (recall/remember는 이미 작동)
-2. **자동정리 다음 단계**: 병합 시 `[[위키링크]]` 보정(병합된 노트 가리키던 링크), (선택) 무인 자동 실행(임계값/주기).
-3. **안 B(데모급 그래프)**: 노드 유형 분류(의미/통찰/절차, LLM) · 의미 관계 엣지(지지/반박/확장, LLM) · 질문→답(RAG).
+1. **push 보류분**: 로컬 커밋 4개(위키링크·노드유형·progress 동기화 2). 검증 끝났으니 올리면 됨.
+2. **자동정리 — (선택) 무인 자동 실행**(임계값/주기). *위키링크 보정은 완료(b0316fb).*
+3. **안 B 나머지**: 의미 관계 엣지(지지/반박/확장, LLM) · 질문→답(RAG `/ask`). *노드 유형 분류는 완료(ae9517b).*
 4. 헤르메스 실연동 — 또 다른 클라이언트로 여전히 가능.
 
 ## 로컬 환경 메모

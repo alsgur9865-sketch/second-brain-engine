@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from app.cleanup import find_duplicate_candidates
 from app.index import BrainIndex, parse_frontmatter
-from app.llm import classify_note
+from app.llm import answer_question, classify_note
 
 
 class _FakeEmbedder:
@@ -122,3 +122,32 @@ def test_classify_note_셋_중_아니면_의미_폴백():
 def test_parse_frontmatter가_type을_읽는다():
     fm = parse_frontmatter("---\ntitle: A\ntype: 절차\n---\n\n# A\n본문")
     assert fm["type"] == "절차"
+
+
+def test_ask_노트없으면_LLM_안부르고_모른다():
+    # 검색 결과가 비면 generate를 호출하지 않고 바로 '기억에 없습니다' 폴백
+    called = []
+
+    class _Spy:
+        def generate(self, prompt):
+            called.append(prompt)
+            return "엉뚱한 답"
+
+    assert answer_question(_Spy(), "포트 어떻게 바꿔?", []) == "기억에 없습니다."
+    assert called == []
+
+
+def test_ask_노트를_컨텍스트로_프롬프트에_넣는다():
+    notes = [
+        {"path": "a.md", "heading": "# 포트", "snippet": "8000번 포트를 쓴다", "distance": 0.1}
+    ]
+    captured = {}
+
+    class _Spy:
+        def generate(self, prompt):
+            captured["prompt"] = prompt
+            return "8000번입니다"
+
+    assert answer_question(_Spy(), "포트 번호?", notes) == "8000번입니다"
+    assert "8000번 포트를 쓴다" in captured["prompt"]   # snippet이 프롬프트에 포함
+    assert "포트 번호?" in captured["prompt"]           # 질문도 포함

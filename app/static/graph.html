@@ -16,6 +16,22 @@
   .legend span { margin-right: 12px; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
     vertical-align: middle; margin-right: 4px; }
+  #ask { position: fixed; left: 14px; bottom: 14px; z-index: 10; width: 360px; max-width: 46vw; }
+  #ask-answer { display: none; background: #11151f; border: 1px solid #1f2733;
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px;
+    max-height: 40vh; overflow-y: auto; }
+  #ask-answer .ans { white-space: pre-wrap; line-height: 1.6; }
+  #ask-answer .srcs { margin-top: 8px; color: #9399b2; font-size: 12px; }
+  #ask-answer .src { display: inline-block; background: #1f2733; border-radius: 4px;
+    padding: 1px 6px; margin: 2px 3px 0 0; }
+  #ask-answer .muted { color: #9399b2; }
+  #ask-bar { display: flex; gap: 6px; }
+  #ask-input { flex: 1; background: #11151f; color: #cdd6f4; border: 1px solid #1f2733;
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; outline: none; }
+  #ask-input:focus { border-color: #89b4fa; }
+  #ask-btn { background: #89b4fa; color: #0b0e14; border: none; border-radius: 8px;
+    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  #ask-btn:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
@@ -35,6 +51,13 @@
   </div>
 </div>
 <div id="graph"></div>
+<div id="ask">
+  <div id="ask-answer"></div>
+  <div id="ask-bar">
+    <input id="ask-input" placeholder="내 뇌에 질문…(Enter)" autocomplete="off" />
+    <button id="ask-btn">묻기</button>
+  </div>
+</div>
 <script src="https://unpkg.com/force-graph"></script>
 <script>
 Promise.all([
@@ -86,6 +109,63 @@ Promise.all([
   .catch(err => {
     document.getElementById('stat').textContent = '그래프 로드 실패: ' + err;
   });
+
+// ── 질문(RAG /ask): 노트를 검색해 로컬 LLM이 근거 기반으로 답한다 ──
+const askInput = document.getElementById('ask-input');
+const askBtn = document.getElementById('ask-btn');
+const askAnswer = document.getElementById('ask-answer');
+
+// textContent로만 채워 XSS를 원천 차단(LLM 답변·노트 제목은 신뢰 못 할 입력).
+function renderMuted(text) {
+  askAnswer.replaceChildren();
+  const m = document.createElement('div');
+  m.className = 'muted';
+  m.textContent = text;
+  askAnswer.appendChild(m);
+}
+
+function renderAnswer(answer, sources) {
+  askAnswer.replaceChildren();
+  const ans = document.createElement('div');
+  ans.className = 'ans';
+  ans.textContent = answer;
+  askAnswer.appendChild(ans);
+  if (sources && sources.length) {
+    const srcs = document.createElement('div');
+    srcs.className = 'srcs';
+    srcs.append('근거: ');
+    for (const s of sources) {
+      const chip = document.createElement('span');
+      chip.className = 'src';
+      chip.textContent = s.heading || s.path;
+      srcs.append(chip, ' ');
+    }
+    askAnswer.appendChild(srcs);
+  }
+}
+
+async function doAsk() {
+  const q = askInput.value.trim();
+  if (!q) return;
+  askBtn.disabled = true;
+  askAnswer.style.display = 'block';
+  renderMuted('생각 중…');
+  try {
+    const r = await fetch('/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q }),
+    });
+    const data = await r.json();
+    renderAnswer(data.answer || '', data.sources || []);
+  } catch (e) {
+    renderMuted('질문 실패: ' + e);
+  } finally {
+    askBtn.disabled = false;
+  }
+}
+askBtn.addEventListener('click', doAsk);
+askInput.addEventListener('keydown', e => { if (e.key === 'Enter') doAsk(); });
 </script>
 </body>
 </html>

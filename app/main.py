@@ -15,7 +15,7 @@ from .config import Settings
 from .embeddings import get_embedder
 from .graph import build_graph
 from .index import BrainIndex, _safe_rel, parse_frontmatter
-from .llm import get_llm, summarize_merge
+from .llm import answer_question, get_llm, summarize_merge
 
 settings = Settings()
 embedder = get_embedder(settings)
@@ -47,6 +47,11 @@ class SearchRequest(BaseModel):
     folder: str | None = None
     max_distance: float | None = None
     include_links: bool = True
+
+
+class AskRequest(BaseModel):
+    query: str
+    k: int = 5
 
 
 class CaptureRequest(BaseModel):
@@ -112,6 +117,24 @@ def search(req: SearchRequest) -> dict:
         req.query, req.k, req.tag, req.folder, req.max_distance, req.include_links
     )
     return {"query": req.query, "results": results}
+
+
+@app.post("/ask", dependencies=[Depends(require_api_key)])
+def ask(req: AskRequest) -> dict:
+    """질문을 노트에서 검색해 로컬 LLM이 근거 기반으로 답한다(1-shot RAG, 엄격 모드).
+
+    ②기억→꺼내 쓰기. 관련 노트가 없으면 '기억에 없습니다'로 답하고 sources는 빈 리스트.
+    답변 생성은 cleanup과 같은 로컬 LLM(get_llm)을 쓴다. 멀티홉 없이 top-k 본문만 근거로.
+    """
+    if settings.auto_sync_on_search:
+        brain.sync()
+    notes = brain.search(req.query, req.k, include_links=False)
+    answer = answer_question(get_llm(settings), req.query, notes)
+    sources = [
+        {"path": n["path"], "heading": n["heading"], "distance": n["distance"]}
+        for n in notes
+    ]
+    return {"query": req.query, "answer": answer, "sources": sources}
 
 
 @app.post("/reindex", dependencies=[Depends(require_api_key)])

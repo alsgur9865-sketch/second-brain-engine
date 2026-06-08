@@ -83,3 +83,29 @@ def classify_note(llm, title: str, content: str) -> str:
         if t in out:
             return t
     return "의미"
+
+
+NO_ANSWER = "기억에 없습니다."
+
+
+def answer_question(llm, question: str, notes: list[dict]) -> str:
+    """검색된 노트들만 근거로 질문에 답한다(1-shot RAG, 엄격 모드).
+
+    notes: search() 결과 [{heading, snippet, ...}]. 근거가 없으면 추측하지 말고
+    '기억에 없습니다'로 답하게 한다. notes가 비면 LLM을 부르지 않고 바로 그렇게 답한다.
+    """
+    if not notes:
+        return NO_ANSWER
+    context = "\n\n---\n\n".join(
+        f"[{i + 1}] {n.get('heading') or n.get('path', '')}\n"
+        f"{n.get('snippet') or n.get('content', '')}"
+        for i, n in enumerate(notes)
+    )
+    prompt = (
+        "다음은 사용자의 기억 노트에서 검색된 발췌다. 이 노트들만 근거로 질문에 답하라.\n"
+        f"노트에 답의 근거가 없으면 추측하지 말고 정확히 '{NO_ANSWER}'라고만 답하라.\n"
+        "한국어로 간결하게 답한다.\n\n"
+        f"=== 노트 ===\n{context}\n\n"
+        f"=== 질문 ===\n{question}\n\n답변:"
+    )
+    return llm.generate(prompt)

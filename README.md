@@ -67,6 +67,9 @@ curl -X POST http://localhost:8000/ask \
 nodes colored by type, edges for wiki-links / similarity / relations, with a
 detail panel and a question box.
 
+> **Using it as agent memory (MCP)?** You don't even need this step — the MCP
+> server auto-starts the engine on first use. See [Agent memory (MCP)](#agent-memory-mcp).
+
 No Ollama? See [Swapping embedding providers](#swapping-embedding-providers) to use OpenAI instead.
 
 ## How it works
@@ -136,8 +139,11 @@ engine's HTTP API, so an agent like Claude Code can keep its own working memory:
 | `cleanup_candidates` | `GET /cleanup/candidates` | find duplicate memories before merging |
 | `cleanup_merge` | `POST /cleanup/merge` | merge duplicates into one note |
 
-Register it with `.mcp.json` (see `.mcp.json.example`) or `claude mcp add`, with the
-engine running on `localhost:8000`. The agent writes; you watch the result in the graph.
+Register it with `.mcp.json` or `claude mcp add`, and set your note path in `.env`
+(copy from `.env.example`). **You don't need to start the engine yourself** — the MCP
+server auto-starts it on the first `remember` / `recall` and keeps it running
+(detached), so later sessions connect instantly. The agent writes; you watch the
+result in the graph.
 
 ## Graph view
 

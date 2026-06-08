@@ -65,6 +65,9 @@ curl -X POST http://localhost:8000/ask \
 …그리고 브라우저로 **http://localhost:8000** 을 열면 **그래프 뷰**가 보인다 — 유형별
 색 노드, 위키링크/유사/관계 엣지, 노드 상세 패널과 질문 박스.
 
+> **에이전트 메모리(MCP)로 쓸 거면** 이 단계도 필요 없다 — MCP 서버가 첫 사용 때 엔진을
+> 자동으로 띄운다. [에이전트 메모리 (MCP)](#에이전트-메모리-mcp) 참고.
+
 Ollama가 없다면 [임베딩 프로바이더 교체](#임베딩-프로바이더-교체)로 OpenAI를 써도 된다.
 
 ## 동작 방식
@@ -135,8 +138,10 @@ Code 같은 에이전트가 자기 작업 기억을 직접 쌓고 꺼낸다:
 | `cleanup_candidates` | `GET /cleanup/candidates` | 병합 전 중복 기억 찾기 |
 | `cleanup_merge` | `POST /cleanup/merge` | 중복을 하나로 병합 |
 
-`.mcp.json`(`.mcp.json.example` 참고) 또는 `claude mcp add`로 등록하고, 엔진을
-`localhost:8000`에 띄워 둔다. 에이전트가 쓰면, 사람은 그 결과를 그래프에서 본다.
+`.mcp.json` 또는 `claude mcp add`로 등록하고, `.env`(`.env.example` 복사)에 노트 경로만
+설정한다. **엔진을 직접 띄울 필요는 없다** — MCP 서버가 첫 `remember`/`recall` 때 엔진을
+자동으로 띄우고 계속 띄워 둔다(detached). 다음 세션은 즉시 붙는다. 에이전트가 쓰면,
+사람은 그 결과를 그래프에서 본다.
 
 ## 그래프 뷰
 

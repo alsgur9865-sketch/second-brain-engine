@@ -46,16 +46,34 @@ def find_duplicate_candidates(
     norms = np.linalg.norm(mat, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     unit = mat / norms
-    sims = unit @ unit.T  # 정규화됐으므로 내적 = 코사인 유사도
 
+    # 전수 비교(N×N 행렬) 대신 각 노트의 평균벡터로 Chroma ANN 질의 → 가까운 후보만 받아,
+    # 그 후보에 대해서만 정확한 코사인을 다시 잰다. O(N²) → O(N·후보수)로 확장성 확보.
+    path_idx = {p: i for i, p in enumerate(paths)}
+    fetch = min(max_pairs * 4 + 30, len(metas))  # 청크 단위 반환이라 후보를 넉넉히
     pairs: list[dict] = []
-    n = len(paths)
-    for i in range(n):
-        for j in range(i + 1, n):  # 무방향 → 상삼각만
-            score = float(sims[i][j])
+    pair_seen: set = set()
+    for i, p in enumerate(paths):
+        res = brain.collection.query(
+            query_embeddings=[mat[i].tolist()],
+            n_results=fetch,
+            include=["metadatas"],
+        )
+        for m in res["metadatas"][0]:
+            cp = m["path"]
+            if cp == p:
+                continue
+            key = tuple(sorted((p, cp)))  # 무방향 → 정렬해 쌍 중복 제거
+            if key in pair_seen:
+                continue
+            j = path_idx.get(cp)
+            if j is None:
+                continue
+            score = float(unit[i] @ unit[j])  # 후보만 정확한 코사인 재계산(근사 아님)
             if score < threshold:
                 continue
-            a, b = paths[i], paths[j]
+            pair_seen.add(key)
+            a, b = key
             pairs.append(
                 {
                     "score": round(score, 3),

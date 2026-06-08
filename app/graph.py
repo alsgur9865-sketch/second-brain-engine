@@ -105,24 +105,39 @@ def build_graph(
                 )
 
     # ---- 엣지 ③: 의미 유사도(무방향 top-k) ----
-    sims = unit @ unit.T  # 코사인 유사도 행렬 (정규화돼 있으므로 내적 = 코사인)
-    n = len(paths)
-    for i in range(n):
-        row = sims[i].copy()
-        row[i] = -1.0  # 자기 자신 제외
-        for j in np.argsort(row)[::-1][:sim_top_k]:
-            score = float(row[j])
-            if score < sim_min:
+    # 전수 비교(N×N 행렬) 대신 각 노트의 평균벡터로 Chroma ANN 질의 → 가까운 후보만 받아,
+    # 그 후보에 대해서만 정확한 코사인을 다시 잰다. O(N²) → O(N·후보수)로 확장성 확보.
+    path_idx = {p: i for i, p in enumerate(paths)}
+    fetch = min(sim_top_k * 10 + 20, len(metas))  # 청크 단위로 반환되므로 노트 후보를 넉넉히
+    for i, p in enumerate(paths):
+        res = brain.collection.query(
+            query_embeddings=[mat[i].tolist()],
+            n_results=fetch,
+            include=["metadatas"],
+        )
+        scored: list[tuple[float, str]] = []
+        seen_cand: set = set()
+        for m in res["metadatas"][0]:
+            cp = m["path"]
+            if cp == p or cp in seen_cand:
                 continue
-            a, b = paths[i], paths[int(j)]
-            if tuple(sorted((a, b))) in rel_suppress:
+            seen_cand.add(cp)
+            j = path_idx.get(cp)
+            if j is None:
+                continue
+            score = float(unit[i] @ unit[j])  # 후보만 정확한 코사인 재계산(근사 아님)
+            if score >= sim_min:
+                scored.append((score, cp))
+        scored.sort(reverse=True)
+        for score, cp in scored[:sim_top_k]:
+            if tuple(sorted((p, cp))) in rel_suppress:
                 continue  # 의미 관계가 분류된 쌍은 라벨 엣지로 대체(무관이면 생략)
-            key = ("sim", *sorted((a, b)))  # 무방향 → 정렬해 중복 제거
+            key = ("sim", *sorted((p, cp)))  # 무방향 → 정렬해 중복 제거
             if key in seen_edge:
                 continue
             seen_edge.add(key)
             edges.append(
-                {"source": a, "target": b, "type": "similar", "weight": round(score, 3)}
+                {"source": p, "target": cp, "type": "similar", "weight": round(score, 3)}
             )
 
     return {"nodes": nodes, "edges": edges}

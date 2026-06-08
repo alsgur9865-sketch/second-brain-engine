@@ -1,4 +1,4 @@
-<!-- progress-sync: 420ba06b41fed67109584e145b7a94dbee098f68 -->
+<!-- progress-sync: b0316fbead45a78370fa35e19fd4c6e334203089 -->
 # Progress — 세컨드 브레인 엔진 (범용)
 
 > 최종 업데이트: 2026-06-08
@@ -29,6 +29,7 @@
 
 ## 진행 기록
 
+- **2026-06-08 (4) 병합 시 위키링크 보정 + 재시작 후 검증**: ①재시작 후 cleanup MCP 도구·Stop hook(3분기)·`cleanup_merge` E2E 모두 실작동 확인(남은작업 1 해소). ②`cleanup_merge`가 원본을 삭제할 때 끊기던 `[[링크]]`를 새 노트 제목으로 자동 치환 — `index.py`에 `collect_link_names()`(삭제 전 stem+title 수집)+`relink()`(전체 스캔·단순 치환·재인덱싱), merge가 add→collect→delete→relink로 호출하고 응답에 `relinked` 추가. 별칭 버림·항상 자동. ruff / pytest **29 passed**(relink 2) + 실엔진 E2E(B·C 병합 시 A의 `[[..]]` 치환) 확인. (커밋 b0316fb, 로컬)
 - **2026-06-08 (3) 자동정리 풀스택 + 에이전트 자동 쌓기**:
   - **자동 쌓기(능동+리마인더)**: 프로젝트 `CLAUDE.md` 능동 규칙(확정 시 `remember`/작업 시작 시 `recall`, folder=decisions/bugs/todos, 저장 전 중복확인) + `.claude/hooks/remind_memory.py` **Stop hook**(한 세션에 remember 0회+사용자 메시지 3개↑면 1회 환기, `stop_hook_active`로 무한루프 방지). hook 등록은 git 제외되는 `settings.local.json`.
   - **자동정리(탐지+병합)**: `app/cleanup.py`(임베딩 중복 탐지, **LLM 0**) + `app/llm.py`(로컬 ollama gemma 병합·요약) + `GET /cleanup/candidates`·`POST /cleanup/merge` + MCP `cleanup_candidates`/`cleanup_merge` + 그래프 **빨간 후보선**. merge는 content 유무로 **에이전트 작성 / gemma 자동요약** 분기.

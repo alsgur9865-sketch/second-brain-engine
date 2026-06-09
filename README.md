@@ -25,6 +25,7 @@ explore it as an Obsidian-style graph in your browser.
   strong in English & Korean alike); swap to any of 7 backends (Ollama, LM Studio,
   llama.cpp, TEI, OpenAI, Voyage, Gemini) with one env value, index auto-rebuilds per model.
 - **Incremental indexing** — only changed notes are re-embedded; clients just write files.
+  Edit a note and the **relation edges touching it are re-evaluated**, so a stale verdict never lingers.
 
 **Stack**: Python · FastAPI · Chroma (embedded vector DB) · local Ollama LLM
 (for cleanup, classification, and answers — no extra infra).
@@ -153,7 +154,8 @@ Open **http://localhost:8000** while the engine is running:
 - **Nodes** are notes, colored by type (concept / insight / procedure; gray = unclassified)
 - **Edges**: green = `[[wiki-link]]`, gray = semantic similarity, red = cleanup
   candidate (duplicate), and **labeled relation edges** — teal *supports*, orange
-  *refutes*, purple *expands* (run `POST /classify-relations` to populate them)
+  *refutes*, purple *expands* (run `POST /classify-relations` to populate them — and editing a
+  note drops the relations touching it, so the next run re-evaluates them instead of keeping a stale label)
 - **Click a node** to open a detail panel (title · type · tags · body · linked notes);
   click a linked chip or an `/ask` source to jump to that node
 - **Question box** (bottom-left) runs `/ask` against your brain

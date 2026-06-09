@@ -157,3 +157,60 @@ def test_BrainIndex_컬렉션이_모델별로_분리된다(tmp_path):
     emb.model = "bge-m3"
     brain = BrainIndex(settings, emb)
     assert brain.collection_name == "second_brain__ollama_bge_m3"
+
+
+# ---------- 관계 도장 무효화 (외부 수정 시 재평가) ----------
+
+
+def _edit_note(full, extra):
+    """노트 본문을 고치고 mtime을 +10초로 올려 '외부 수정'을 흉내낸다(sync가 변경으로 감지)."""
+    with open(full, encoding="utf-8") as f:
+        text = f.read()
+    with open(full, "w", encoding="utf-8") as f:
+        f.write(text + extra)
+    future = int(os.path.getmtime(full)) + 10
+    os.utime(full, (future, future))
+
+
+def test_외부수정시_source노트의_관계도장이_떨어진다(tmp_path):
+    brain = _make_brain(tmp_path)
+    a = brain.add_note("천수호 설정", "## 설정\n회귀자", [], "notes")
+    b = brain.add_note("세계관 룰북", "## 규칙\n회귀 법칙", [], "notes")
+    brain._add_relations(a, [(b, "지지")])
+    assert brain._note_relations(a) == {b: "지지"}
+
+    _edit_note(os.path.join(brain.notes_path, a), "\n새로 추가된 내용")
+    brain.sync()
+    assert brain._note_relations(a) == {}   # 본문이 바뀌었으니 다음 분류에서 재평가
+
+
+def test_외부수정시_짝꿍노트의_관계도장도_떨어진다(tmp_path):
+    brain = _make_brain(tmp_path)
+    a = brain.add_note("천수호 설정", "## 설정\n회귀자", [], "notes")
+    b = brain.add_note("세계관 룰북", "## 규칙\n회귀 법칙", [], "notes")
+    brain._add_relations(a, [(b, "지지")])   # 도장은 a에만, b는 target일 뿐
+
+    _edit_note(os.path.join(brain.notes_path, b), "\n룰북 개정")
+    brain.sync()
+    assert brain._note_relations(a) == {}   # 짝꿍 b가 바뀌면 a의 도장도 무효
+
+
+def test_수정없으면_관계도장이_유지된다(tmp_path):
+    brain = _make_brain(tmp_path)
+    a = brain.add_note("A", "## a\n내용", [], "notes")
+    b = brain.add_note("B", "## b\n내용", [], "notes")
+    brain._add_relations(a, [(b, "확장")])
+
+    brain.sync()   # 아무 노트도 안 바뀜 → 무효화 없음
+    assert brain._note_relations(a) == {b: "확장"}
+
+
+def test_새노트_추가는_기존관계를_건드리지_않는다(tmp_path):
+    brain = _make_brain(tmp_path)
+    a = brain.add_note("A", "## a\n내용", [], "notes")
+    b = brain.add_note("B", "## b\n내용", [], "notes")
+    brain._add_relations(a, [(b, "반박")])
+
+    brain.add_note("C", "## c\n새 노트", [], "notes")   # 새 노트는 modified 아님
+    brain.sync()
+    assert brain._note_relations(a) == {b: "반박"}

@@ -216,17 +216,53 @@ class BrainIndex:
 
         to_index = [p for p, m in disk.items() if indexed.get(p) != m]
         to_remove = [p for p in indexed if p not in disk]
+        # 외부에서 본문이 바뀐 노트(이미 인덱싱돼 있던 것만 — 새 노트·full rebuild는 제외).
+        # 옛 관계 판정이 더는 유효하지 않으므로 도장을 떼어 다음 분류에서 재평가시킨다.
+        modified = [p for p in to_index if p in indexed]
+        touched = self._invalidate_relations(modified, disk)
 
         for path in to_remove:
             self.collection.delete(where={"path": path})
-        for path in to_index:
-            self._index_file(path, disk[path])
+        # to_index + 도장이 떨어져 frontmatter가 바뀐 짝꿍(touched)을 함께 재인덱싱한다.
+        reindex = sorted(set(to_index) | touched)
+        for path in reindex:
+            full = os.path.join(self.notes_path, path)
+            self._index_file(path, int(os.path.getmtime(full)))
 
         return {
-            "indexed": len(to_index),
+            "indexed": len(reindex),
             "removed": len(to_remove),
             "total_files": len(disk),
         }
+
+    def _invalidate_relations(self, modified, disk_paths) -> set:
+        """외부에서 수정된 노트가 낀 관계 도장을 frontmatter에서 양방향으로 떼어낸다.
+
+        - source 쪽: 수정된 노트 자신의 relations를 통째로 비운다(본문이 바뀌면 판정 무효).
+        - target 쪽: 다른 노트의 relations에서 '수정노트::관계' 줄만 제거한다(짝꿍 판정도 무효).
+        관계는 두 노트 중 한쪽에만 저장되므로, 짝꿍까지 훑어야 빠짐없이 최신화된다.
+        재인덱싱은 호출자(sync)가 일괄 처리하므로, 여기선 파일만 고치고 바뀐 경로를 반환한다.
+        """
+        mod = set(modified)
+        if not mod:
+            return set()
+        touched: set = set()
+        for rel in disk_paths:
+            full = os.path.join(self.notes_path, rel)
+            with open(full, encoding="utf-8") as f:
+                text = f.read()
+            rels = _parse_relations(parse_frontmatter(text)["relations"])
+            if not rels:
+                continue
+            new_rels = {} if rel in mod else {t: r for t, r in rels.items() if t not in mod}
+            if new_rels == rels:
+                continue
+            joined = ", ".join(f"{t}::{r}" for t, r in new_rels.items())
+            new_text = _set_frontmatter_field(text, "relations", joined)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(new_text)
+            touched.add(rel)
+        return touched
 
     def _index_file(self, rel_path: str, mtime: int) -> None:
         full = os.path.join(self.notes_path, rel_path)
